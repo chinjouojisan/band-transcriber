@@ -7,7 +7,7 @@
 <div><button id="process" disabled>結果を整理・表示</button><button id="cleanCsv" disabled>整理後CSV</button></div>
 <p id="summary" class="muted">解析後に「結果を整理・表示」を押してください。</p>
 <p class="muted">整理は推定的な候補の削除・結合・任意の時間補正です。楽器の識別や採譜の正確さは保証しません。再解析せず設定を変更できます。</p>
-</section><section class="panel"><h2>楽器別の演奏ヒント（アタック・減衰解析版）</h2><p class="muted">ベースは低音候補から4弦標準チューニングの運指を推定。ドラムは帯域別アタックと減衰時間からキック／スネア／クローズHH／オープンHH・クラッシュ候補を推定します。ピアノや他楽器の音が混ざると誤判定します。</p><label>楽器別解析方式 <select id="scaleMode"><option value="multi" selected>複数時間窓（推奨）</option><option value="single">従来方式（比較）</option></select></label><label><input id="calibrate" type="checkbox" checked> 曲内の静かな区間を基準に相対判定（実験）</label><p class="muted">10/30/80msの変化を併用。音源を伸長せず、時間分解能を変えて解析します。楽器が増えても特定の開始秒数を固定しません。</p><div><button id="hints" disabled>楽器別ヒントを作成</button><button id="bassCsv" disabled>ベースTAB候補CSV</button><button id="drumCsv" disabled>ドラム候補CSV</button></div><p id="hintSummary" class="muted">解析後、先に「結果を整理・表示」を押してください。</p><h3>ベースTAB候補（先頭30件）</h3><div style="overflow-x:auto"><table id="bassTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div><h3>ドラム打点候補（先頭40件）</h3><div style="overflow-x:auto"><table id="drumTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div></section><section class="panel"><h2>多声音程・アルペジオ解析（v1.2実験）</h2><p class="muted">楽器名を決める前に、混合音源から同時発音する音程候補を抽出します。歪み・残響・倍音による誤認識は残ります。従来の解析とは独立して実行できます。</p><label>多声音程の検出感度 <select id="polySens"><option value="conservative">控えめ（誤検出を抑える）</option><option value="balanced" selected>標準</option><option value="sensitive">高感度（取りこぼしを減らす）</option></select></label><button id="polyStart" disabled>多声音程を解析</button><button id="polyCsv" disabled>多声音程CSV</button><p id="polyStatus" class="muted">音源を選択すると解析できます。</p><div style="overflow-x:auto"><table id="polyTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div></section><section class="panel"><h2>診断ログ</h2><button id="copyLog" type="button">ログをコピー</button><span id="copyStatus" class="muted" role="status"></span><pre id="log"></pre></section></main><script>
+</section><section class="panel"><h2>楽器別の演奏ヒント（アタック・減衰解析版）</h2><p class="muted">ベースは低音候補から4弦標準チューニングの運指を推定。ドラムは帯域別アタックと減衰時間からキック／スネア／クローズHH／オープンHH・クラッシュ候補を推定します。ピアノや他楽器の音が混ざると誤判定します。</p><label>楽器別解析方式 <select id="scaleMode"><option value="multi" selected>複数時間窓（推奨）</option><option value="single">従来方式（比較）</option></select></label><label><input id="calibrate" type="checkbox" checked> 曲内の静かな区間を基準に相対判定（実験）</label><p class="muted">10/30/80msの変化を併用。音源を伸長せず、時間分解能を変えて解析します。楽器が増えても特定の開始秒数を固定しません。</p><div><button id="hints" disabled>楽器別ヒントを作成</button><button id="bassCsv" disabled>ベースTAB候補CSV</button><button id="drumCsv" disabled>ドラム候補CSV</button></div><p id="hintSummary" class="muted">解析後、先に「結果を整理・表示」を押してください。</p><h3>ベースTAB候補（先頭30件）</h3><div style="overflow-x:auto"><table id="bassTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div><h3>ドラム打点候補（先頭40件）</h3><div style="overflow-x:auto"><table id="drumTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div></section><section class="panel"><h2>多声音程・アルペジオ解析（v1.3実験）</h2><p class="muted">楽器名を決める前に、混合音源から同時発音する音程候補を抽出します。歪み・残響・倍音による誤認識は残ります。従来の解析とは独立して実行できます。</p><label>多声音程の検出感度 <select id="polySens"><option value="conservative">控えめ（誤検出を抑える）</option><option value="balanced" selected>標準</option><option value="sensitive">高感度（取りこぼしを減らす）</option></select></label><button id="polyStart" disabled>多声音程を解析</button><button id="polyCsv" disabled>多声音程CSV</button><p id="polyStatus" class="muted">音源を選択すると解析できます。</p><div style="overflow-x:auto"><table id="polyTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div></section><section class="panel"><h2>診断ログ</h2><button id="copyLog" type="button">ログをコピー</button><span id="copyStatus" class="muted" role="status"></span><pre id="log"></pre></section></main><script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), player=$('player'), logEl=$('log');let decoded=null,bandFrames=null,ctx,source,analyser,buf,url,timer=null,events=[],cleaned=null,drumHits=[],bassHints=[],drumHints=[],freqBuf=null,lastByBand={low:null,high:null},lastOnset=-10,onsets=0,prevRms=0,lastTick=0,running=false,hasSignal=false;
 function log(s){const t=new Date().toLocaleTimeString('ja-JP',{hour12:false});logEl.textContent+=t+' '+s+'\n';logEl.scrollTop=logEl.scrollHeight}
@@ -100,7 +100,7 @@ function processEvents(){
 }
 $('process').onclick=processEvents;
 $('cleanCsv').onclick=()=>{if(!cleaned)return;saveCsv(cleaned,'band-transcriber-v11-cleaned.csv');log('整理後CSV保存：'+cleaned.length+'件')};
-window.addEventListener('pagehide',cleanupFile);draw();log('v1.2 起動。外部への音源送信なし');
+window.addEventListener('pagehide',cleanupFile);draw();log('v1.3 起動。外部への音源送信なし');
 
 
 // Entirely on-device: offline band-limited envelope extraction. No network or external models.
@@ -194,52 +194,80 @@ async function extractPoly(){
  const f=$('file').files[0];if(!f)throw Error('音源なし');
  const raw=await f.arrayBuffer(),ac=new (window.AudioContext||window.webkitAudioContext)();let audio;
  try{audio=await ac.decodeAudioData(raw)}finally{await ac.close()}
- // One mono offline resample; preserves original pitch, with no external dependency.
  const sr=12000,len=Math.ceil(audio.duration*sr),off=new OfflineAudioContext(1,len,sr),src=off.createBufferSource();src.buffer=audio;src.connect(off.destination);src.start();
- const render=await off.startRendering(),x=render.getChannelData(0),N=4096,hop=256;
- const settings=$('polySens').value,ratio=settings==='conservative'?.30:settings==='sensitive'?.13:.20;
- const midiMin=36,midiMax=88;const active=new Map(),finished=[],strengths=[];
- let frames=0;
+ const render=await off.startRendering(),x=render.getChannelData(0),N=4096,hop=256,dt=hop/sr,binHz=sr/N;
+ const settings=$('polySens').value,ratio=settings==='conservative'?.34:settings==='sensitive'?.17:.25;
+ const midiMin=36,midiMax=88,nMidi=midiMax-midiMin+1,frames=[],maxVoices=5;
+ let previousMag=null,frameCount=0;
+ // Analyse harmonic *families*, rather than treating every FFT peak as an independent played note.
  for(let pos=0;pos+N<=x.length;pos+=hop){
   const slice=x.subarray(pos,pos+N);let power=0;for(let i=0;i<N;i++)power+=slice[i]*slice[i];const rms=Math.sqrt(power/N);
-  const t=(pos+N/2)/sr;
-  if(rms<.00045){for(const [m,v] of active){if(v.count>=2)finished.push({midi:m,start:v.start,duration:Math.max(.04,t-v.start),confidence:v.score/v.count});}active.clear();continue}
-  const mag=fftMagnitudes(slice),binHz=sr/N;
-  // Local spectral peak detection; assign peaks to candidate fundamentals to avoid counting harmonics as independent notes.
-  const peaks=[];for(let k=12;k<Math.min(mag.length-2,1900);k++)if(mag[k]>mag[k-1]&&mag[k]>=mag[k+1])peaks.push({hz:k*binHz,amp:mag[k]});
-  peaks.sort((a,b)=>b.amp-a.amp);const top=peaks.slice(0,65);const max=top.length?top[0].amp:0;
-  const scores=[];
-  for(let m=midiMin;m<=midiMax;m++){
-   const f0=440*Math.pow(2,(m-69)/12);let score=0,match=0;
-   for(let h=1;h<=Math.min(7,Math.floor(5300/f0));h++){
-    const target=f0*h,tolerance=Math.max(binHz*1.5,target*.013);let best=0;
-    for(const peak of top){const d=Math.abs(peak.hz-target);if(d<tolerance)best=Math.max(best,peak.amp*(1-d/tolerance*.5));}
-    if(best>max*.035){score+=best/Math.pow(h,.85);match++}
+  const mag=fftMagnitudes(slice),peaks=[];
+  for(let k=12;k<Math.min(mag.length-2,1900);k++)if(mag[k]>mag[k-1]&&mag[k]>=mag[k+1])peaks.push({hz:k*binHz,amp:mag[k]});
+  peaks.sort((a,b)=>b.amp-a.amp);const top=peaks.slice(0,75),max=top.length?top[0].amp:0;
+  const scores=new Float32Array(nMidi),funds=new Float32Array(nMidi),onsets=new Float32Array(nMidi);
+  for(let j=0;j<nMidi;j++){
+   const m=midiMin+j,f0=440*Math.pow(2,(m-69)/12),harm=[];let score=0,match=0;
+   for(let h=1;h<=Math.min(9,Math.floor(5500/f0));h++){
+    const target=f0*h,tol=Math.max(binHz*1.3,target*.010),lo=Math.max(1,Math.round((target-tol)/binHz)),hi=Math.min(mag.length-2,Math.round((target+tol)/binHz));
+    let best=0,bestK=lo;for(let k=lo;k<=hi;k++)if(mag[k]>best){best=mag[k];bestK=k}
+    harm.push(best);
+    if(best>max*.035){score+=best/Math.pow(h,.9);match++}
+    if(h===1)funds[j]=best;
+    if(previousMag&&h<=3){const novelty=Math.max(0,best-previousMag[bestK]);onsets[j]+=novelty/Math.pow(h,.7)}
    }
-   // Require fundamental/low harmonics; reduce octave-harmonic ghosts.
-   const fundamental=top.some(p=>Math.abs(p.hz-f0)<Math.max(binHz*1.5,f0*.016)&&p.amp>max*.045);
-   if(match>=2&&fundamental)scores.push({m,score});
+   // An independent note needs a measurable fundamental, and not merely the harmonics of a lower note.
+   if(match>=2&&funds[j]>max*.065){scores[j]=score;}
   }
-  scores.sort((a,b)=>b.score-a.score);const best=scores.length?scores[0].score:0;
-  const selected=[];
-  for(const candidate of scores){if(selected.length>=5)break;if(candidate.score<best*ratio)break;
-   // Reject octave duplication when weaker octave is mostly harmonic energy.
-   if(selected.some(s=>Math.abs(s.m-candidate.m)===12&&candidate.score<s.score*.72))continue;
-   selected.push(candidate);
+  const order=Array.from({length:nMidi},(_,j)=>j).sort((a,b)=>scores[b]-scores[a]);const best=scores[order[0]]||0,selected=[];
+  for(const j of order){if(selected.length>=maxVoices||scores[j]<best*ratio||scores[j]<=0)break;
+   const f0=440*Math.pow(2,(midiMin+j-69)/12);
+   // If an upper candidate shares a harmonic series with a stronger lower candidate, require independent fundamental evidence.
+   let ghost=false;
+   for(const low of selected){const lf=440*Math.pow(2,(midiMin+low-69)/12),r=f0/lf,k=Math.round(r);
+    if(k>=2&&k<=6&&Math.abs(r-k)<.035&&scores[j]<scores[low]*.90){
+     const kbin=Math.round(f0/binHz),near=mag[Math.min(mag.length-1,kbin)];
+     if(funds[j]<Math.max(near*1.2,max*.16))ghost=true;
+    }
+   }
+   if(!ghost)selected.push(j);
   }
-  const present=new Set(selected.map(z=>z.m));
-  for(const [m,v] of active){if(!present.has(m)){v.misses++;if(v.misses>=2){if(v.count>=2)finished.push({midi:m,start:v.start,duration:Math.max(.04,t-v.start),confidence:v.score/v.count});active.delete(m)}}}
-  for(const c of selected){let a=active.get(c.m);if(!a){a={start:t,count:0,score:0,misses:0};active.set(c.m,a)}a.count++;a.score+=Math.min(1,c.score/(best+1e-9));a.misses=0;}
-  frames++;
-  if(frames%75===0){$('polyStatus').textContent='多声音程解析中 '+Math.min(100,Math.round(100*(pos+N)/x.length))+'%';await new Promise(r=>setTimeout(r,0));}
+  frames.push({t:(pos+N/2)/sr,rms,scores,funds,onsets,selected});previousMag=mag;
+  if(++frameCount%75===0){$('polyStatus').textContent='多声音程解析中 '+Math.min(100,Math.round(100*(pos+N)/x.length))+'%';await new Promise(r=>setTimeout(r,0))}
  }
- const end=x.length/sr;for(const [m,v] of active)if(v.count>=2)finished.push({midi:m,start:v.start,duration:Math.max(.04,end-v.start),confidence:v.score/v.count});
- // Consolidate short dropouts; note: duration is a rough activity span, not a measured key-release.
- finished.sort((a,b)=>a.midi-b.midi||a.start-b.start);const merged=[];
- for(const n of finished){const prev=merged[merged.length-1];if(prev&&prev.midi===n.midi&&n.start-(prev.start+prev.duration)<.075){prev.duration=Math.max(prev.duration,n.start+n.duration-prev.start);prev.confidence=Math.max(prev.confidence,n.confidence)}else merged.push({...n})}
- return merged.filter(n=>n.duration>=.06).sort((a,b)=>a.start-b.start||a.midi-b.midi);
+ // Per-note tracking: distinguish new attacks from long resonance, while tolerating brief masking.
+ const active=new Map(),finished=[];let retriggers=0,ghostRejects=0;
+ const close=(j,v,end)=>{if(v.hits>=3&&end-v.start>=.065)finished.push({midi:j+midiMin,start:Math.max(0,v.start),duration:Math.max(.065,end-v.start),confidence:Math.min(1,v.conf/v.hits),attack_strength:v.peakAttack,source:'harmonic-track'});};
+ for(let i=0;i<frames.length;i++){
+  const fr=frames[i],prev=frames[Math.max(0,i-2)],next=frames[Math.min(frames.length-1,i+2)];
+  const present=new Set(fr.selected);
+  for(const [j,v] of active){
+   if(!present.has(j)||fr.rms<.0004){v.miss++;if(v.miss>=3){close(j,v,fr.t-v.miss*dt);active.delete(j)}continue}
+   const attack=fr.onsets[j],past=prev.onsets[j],future=next.onsets[j];
+   const relative=attack/(fr.scores[j]+1e-9);
+   const strongAttack=relative>.20&&attack>past*1.65&&attack>=future*.72&&fr.t-v.start>.11;
+   if(strongAttack){close(j,v,fr.t);active.delete(j);retriggers++;}
+  }
+  for(const j of fr.selected){let v=active.get(j);if(!v){v={start:Math.max(0,fr.t-N/(2*sr)),hits:0,conf:0,miss:0,peakAttack:0};active.set(j,v)}
+   v.hits++;v.miss=0;v.conf+=Math.min(1,fr.scores[j]/((fr.scores[fr.selected[0]]||1)+1e-9));v.peakAttack=Math.max(v.peakAttack,fr.onsets[j]/(fr.scores[j]+1e-9));
+  }
+ }
+ for(const [j,v] of active)close(j,v,x.length/sr);
+ // Remove fragments that look like the octave/third harmonic of a simultaneously stronger note.
+ finished.sort((a,b)=>a.start-b.start||a.midi-b.midi);
+ const filtered=finished.filter(n=>{
+  for(const low of finished){if(low===n||low.midi>=n.midi||low.confidence<n.confidence*.85)continue;
+   const r=Math.pow(2,(n.midi-low.midi)/12),k=Math.round(r);
+   if(k<2||k>5||Math.abs(r-k)>.025)continue;
+   const overlap=Math.max(0,Math.min(n.start+n.duration,low.start+low.duration)-Math.max(n.start,low.start));
+   if(overlap>n.duration*.82&&Math.abs(n.start-low.start)<.07&&n.confidence<low.confidence*.78){ghostRejects++;return false}
+  }
+  return true;
+ });
+ log('多声音程内訳：音程追跡 '+finished.length+' / 倍音重複除外 '+ghostRejects+' / 再打鍵分割 '+retriggers);
+ return filtered;
 }
-$('polyStart').onclick=async()=>{const b=$('polyStart');b.disabled=true;$('polyCsv').disabled=true;log('多声音程解析開始：'+$('polySens').value);try{polyNotes=await extractPoly();$('polyStatus').textContent='音程候補 '+polyNotes.length+'件（楽器未分類・推定）';$('polyCsv').disabled=!polyNotes.length;tableRows('polyTable',['開始秒','音程','長さ','信頼度'],polyNotes.slice(0,65).map(n=>[n.start.toFixed(2),noteName(n.midi),n.duration.toFixed(2),n.confidence.toFixed(2)]));log('多声音程解析完了：'+polyNotes.length+'件 / 0〜9秒 '+polyNotes.filter(n=>n.start<9).length+'件')}catch(e){log('多声音程解析エラー：'+e.name+' '+e.message);$('polyStatus').textContent='解析エラー：'+e.message}finally{b.disabled=false}};
-$('polyCsv').onclick=()=>{downloadText(csvText(polyNotes.map(n=>[n.start.toFixed(3),n.duration.toFixed(3),n.midi,noteName(n.midi),n.confidence.toFixed(3),'unassigned']),['start_sec','duration_sec','midi','note','confidence','instrument']),'band-transcriber-v12-polyphonic.csv');log('多声音程CSV保存：'+polyNotes.length+'件')};
+$('polyStart').onclick=async()=>{const b=$('polyStart');b.disabled=true;$('polyCsv').disabled=true;log('多声音程解析開始：'+$('polySens').value);try{polyNotes=await extractPoly();$('polyStatus').textContent='音程候補 '+polyNotes.length+'件（楽器未分類・推定）';$('polyCsv').disabled=!polyNotes.length;tableRows('polyTable',['開始秒','音程','長さ','信頼度'],polyNotes.slice(0,65).map(n=>[n.start.toFixed(2),noteName(n.midi),n.duration.toFixed(2),n.confidence.toFixed(2)]));log('多声音程解析完了：'+polyNotes.length+'件 / 0〜9秒 '+polyNotes.filter(n=>n.start<9).length+'件 / 9秒以降 '+polyNotes.filter(n=>n.start>=9).length+'件')}catch(e){log('多声音程解析エラー：'+e.name+' '+e.message);$('polyStatus').textContent='解析エラー：'+e.message}finally{b.disabled=false}};
+$('polyCsv').onclick=()=>{downloadText(csvText(polyNotes.map(n=>[n.start.toFixed(3),n.duration.toFixed(3),n.midi,noteName(n.midi),n.confidence.toFixed(3),'unassigned',n.attack_strength.toFixed(3),n.source]),['start_sec','duration_sec','midi','note','confidence','instrument','attack_strength','source']),'band-transcriber-v13-polyphonic.csv');log('多声音程CSV保存：'+polyNotes.length+'件')};
 
 })();</script></body></html>
