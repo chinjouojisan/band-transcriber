@@ -1,4 +1,4 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Band Transcriber v1.1</title><style>:root{color-scheme:dark}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#101827;color:#f2f6ff;margin:0;padding:18px;line-height:1.5}main{max-width:760px;margin:auto}h1{font-size:1.4rem}small,.muted{color:#aab9cf}.panel{background:#1b2940;padding:15px;border-radius:12px;margin:14px 0}button,input,select{font:inherit}button{background:#4779ec;border:0;border-radius:9px;color:white;padding:11px 15px;margin:5px 5px 5px 0}button:disabled{opacity:.45}input[type=file]{max-width:100%}audio{width:100%;margin-top:10px}label{display:block;margin:8px 0}canvas{width:100%;height:270px;background:#0a1424;border-radius:8px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:230px;overflow:auto}#status{font-weight:600} .row{display:flex;flex-wrap:wrap;gap:10px}.stat{flex:1;min-width:130px;background:#101827;border-radius:9px;padding:10px}</style></head><body><main><h1>Band Transcriber <small>v1.1</small></h1><p class="muted">ローカル楽器別ヒント版｜音声は端末内のみ。ベースTAB候補・ドラム打点候補は推定であり、正確な楽器分離ではありません。</p><section class="panel"><label>音源（M4A / MP3 など）<input id="file" type="file" accept="audio/*,.m4a,.mp3"></label><audio id="player" controls playsinline></audio><p id="meta" class="muted">音源を選択してください</p><label>解析モード <select id="mode"><option value="fast">高速（約20ms間隔）</option><option value="normal">標準（約40ms間隔）</option></select></label><label>検出感度 <input id="sensitivity" type="range" min="1" max="5" value="3"> <span id="sensValue">3</span> / 5</label><div><button id="start" disabled>解析を開始</button><button id="stop" disabled>停止</button><button id="csv" disabled>生データCSV</button></div><p id="status">待機中</p></section><section class="panel"><div class="row"><div class="stat">検出イベント<br><strong id="count">0</strong> 件</div><div class="stat">音の立ち上がり<br><strong id="onsets">0</strong> 回</div><div class="stat">信号レベル<br><strong id="level">0.0000</strong></div></div><p class="muted">音の立ち上がりはドラム等も含みます。低音と高音は周波数帯域に基づく推定です。</p><canvas id="roll" width="900" height="300"></canvas><p class="muted">横軸：秒 ／ 縦軸：MIDI音高。青：低音域、橙：中高音域。整理後は整理結果を表示</p></section><section class="panel"><h2>検出結果の整理（解析後）</h2>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Band Transcriber v1.2</title><style>:root{color-scheme:dark}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#101827;color:#f2f6ff;margin:0;padding:18px;line-height:1.5}main{max-width:760px;margin:auto}h1{font-size:1.4rem}small,.muted{color:#aab9cf}.panel{background:#1b2940;padding:15px;border-radius:12px;margin:14px 0}button,input,select{font:inherit}button{background:#4779ec;border:0;border-radius:9px;color:white;padding:11px 15px;margin:5px 5px 5px 0}button:disabled{opacity:.45}input[type=file]{max-width:100%}audio{width:100%;margin-top:10px}label{display:block;margin:8px 0}canvas{width:100%;height:270px;background:#0a1424;border-radius:8px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:230px;overflow:auto}#status{font-weight:600} .row{display:flex;flex-wrap:wrap;gap:10px}.stat{flex:1;min-width:130px;background:#101827;border-radius:9px;padding:10px}</style></head><body><main><h1>Band Transcriber <small>v1.2</small></h1><p class="muted">ローカル楽器別ヒント版｜音声は端末内のみ。ベースTAB候補・ドラム打点候補は推定であり、正確な楽器分離ではありません。</p><section class="panel"><label>音源（M4A / MP3 など）<input id="file" type="file" accept="audio/*,.m4a,.mp3"></label><audio id="player" controls playsinline></audio><p id="meta" class="muted">音源を選択してください</p><label>解析モード <select id="mode"><option value="fast">高速（約20ms間隔）</option><option value="normal">標準（約40ms間隔）</option></select></label><label>検出感度 <input id="sensitivity" type="range" min="1" max="5" value="3"> <span id="sensValue">3</span> / 5</label><div><button id="start" disabled>解析を開始</button><button id="stop" disabled>停止</button><button id="csv" disabled>生データCSV</button></div><p id="status">待機中</p></section><section class="panel"><div class="row"><div class="stat">検出イベント<br><strong id="count">0</strong> 件</div><div class="stat">音の立ち上がり<br><strong id="onsets">0</strong> 回</div><div class="stat">信号レベル<br><strong id="level">0.0000</strong></div></div><p class="muted">音の立ち上がりはドラム等も含みます。低音と高音は周波数帯域に基づく推定です。</p><canvas id="roll" width="900" height="300"></canvas><p class="muted">横軸：秒 ／ 縦軸：MIDI音高。青：低音域、橙：中高音域。整理後は整理結果を表示</p></section><section class="panel"><h2>検出結果の整理（解析後）</h2>
 <label>最短音符候補 <select id="minDur"><option value="0">除外しない</option><option value="0.03" selected>30ms未満を除外</option><option value="0.05">50ms未満を除外</option><option value="0.08">80ms未満を除外</option></select></label>
 <label><input id="smart" type="checkbox" checked> 短音・倍音・同音分断を音楽的に整理する（実験的）</label>
 <label><input id="dedup" type="checkbox" checked> 低音域・中高音域の同音重複を整理する</label>
@@ -7,7 +7,7 @@
 <div><button id="process" disabled>結果を整理・表示</button><button id="cleanCsv" disabled>整理後CSV</button></div>
 <p id="summary" class="muted">解析後に「結果を整理・表示」を押してください。</p>
 <p class="muted">整理は推定的な候補の削除・結合・任意の時間補正です。楽器の識別や採譜の正確さは保証しません。再解析せず設定を変更できます。</p>
-</section><section class="panel"><h2>楽器別の演奏ヒント（アタック・減衰解析版）</h2><p class="muted">ベースは低音候補から4弦標準チューニングの運指を推定。ドラムは帯域別アタックと減衰時間からキック／スネア／クローズHH／オープンHH・クラッシュ候補を推定します。ピアノや他楽器の音が混ざると誤判定します。</p><label>楽器別解析方式 <select id="scaleMode"><option value="multi" selected>複数時間窓（推奨）</option><option value="single">従来方式（比較）</option></select></label><label><input id="calibrate" type="checkbox" checked> 曲内の静かな区間を基準に相対判定（実験）</label><p class="muted">10/30/80msの変化を併用。音源を伸長せず、時間分解能を変えて解析します。楽器が増えても特定の開始秒数を固定しません。</p><div><button id="hints" disabled>楽器別ヒントを作成</button><button id="bassCsv" disabled>ベースTAB候補CSV</button><button id="drumCsv" disabled>ドラム候補CSV</button></div><p id="hintSummary" class="muted">解析後、先に「結果を整理・表示」を押してください。</p><h3>ベースTAB候補（先頭30件）</h3><div style="overflow-x:auto"><table id="bassTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div><h3>ドラム打点候補（先頭40件）</h3><div style="overflow-x:auto"><table id="drumTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div></section><section class="panel"><h2>診断ログ</h2><button id="copyLog" type="button">ログをコピー</button><span id="copyStatus" class="muted" role="status"></span><pre id="log"></pre></section></main><script>
+</section><section class="panel"><h2>楽器別の演奏ヒント（アタック・減衰解析版）</h2><p class="muted">ベースは低音候補から4弦標準チューニングの運指を推定。ドラムは帯域別アタックと減衰時間からキック／スネア／クローズHH／オープンHH・クラッシュ候補を推定します。ピアノや他楽器の音が混ざると誤判定します。</p><label>楽器別解析方式 <select id="scaleMode"><option value="multi" selected>複数時間窓（推奨）</option><option value="single">従来方式（比較）</option></select></label><label><input id="calibrate" type="checkbox" checked> 曲内の静かな区間を基準に相対判定（実験）</label><p class="muted">10/30/80msの変化を併用。音源を伸長せず、時間分解能を変えて解析します。楽器が増えても特定の開始秒数を固定しません。</p><div><button id="hints" disabled>楽器別ヒントを作成</button><button id="bassCsv" disabled>ベースTAB候補CSV</button><button id="drumCsv" disabled>ドラム候補CSV</button></div><p id="hintSummary" class="muted">解析後、先に「結果を整理・表示」を押してください。</p><h3>ベースTAB候補（先頭30件）</h3><div style="overflow-x:auto"><table id="bassTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div><h3>ドラム打点候補（先頭40件）</h3><div style="overflow-x:auto"><table id="drumTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div></section><section class="panel"><h2>多声音程・アルペジオ解析（v1.2実験）</h2><p class="muted">楽器名を決める前に、混合音源から同時発音する音程候補を抽出します。歪み・残響・倍音による誤認識は残ります。従来の解析とは独立して実行できます。</p><label>多声音程の検出感度 <select id="polySens"><option value="conservative">控えめ（誤検出を抑える）</option><option value="balanced" selected>標準</option><option value="sensitive">高感度（取りこぼしを減らす）</option></select></label><button id="polyStart" disabled>多声音程を解析</button><button id="polyCsv" disabled>多声音程CSV</button><p id="polyStatus" class="muted">音源を選択すると解析できます。</p><div style="overflow-x:auto"><table id="polyTable" style="width:100%;border-collapse:collapse;font-size:13px"></table></div></section><section class="panel"><h2>診断ログ</h2><button id="copyLog" type="button">ログをコピー</button><span id="copyStatus" class="muted" role="status"></span><pre id="log"></pre></section></main><script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), player=$('player'), logEl=$('log');let decoded=null,bandFrames=null,ctx,source,analyser,buf,url,timer=null,events=[],cleaned=null,drumHits=[],bassHints=[],drumHints=[],freqBuf=null,lastByBand={low:null,high:null},lastOnset=-10,onsets=0,prevRms=0,lastTick=0,running=false,hasSignal=false;
 function log(s){const t=new Date().toLocaleTimeString('ja-JP',{hour12:false});logEl.textContent+=t+' '+s+'\n';logEl.scrollTop=logEl.scrollHeight}
@@ -15,7 +15,7 @@ function status(s){$('status').textContent=s}
 $('copyLog').onclick=async()=>{const value=logEl.textContent;try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(value)}else{const t=document.createElement('textarea');t.value=value;t.style.position='fixed';t.style.opacity='0';document.body.append(t);t.focus();t.select();const ok=document.execCommand('copy');t.remove();if(!ok)throw Error('コピー非対応')} $('copyStatus').textContent='コピーしました';}catch(e){$('copyStatus').textContent='自動コピー不可。ログを長押しして選択してください';log('ログコピー失敗：'+e.message)}};
 
 function cleanupFile(){if(url)URL.revokeObjectURL(url);url=null}
-function reset(){decoded=null;bandFrames=null;drumHits=[];bassHints=[];drumHints=[];freqBuf=null;$('hints').disabled=true;$('bassCsv').disabled=true;$('drumCsv').disabled=true;$('bassTable').textContent='';$('drumTable').textContent='';$('hintSummary').textContent='解析後、先に結果を整理してください。';cleaned=null;$('process').disabled=true;$('cleanCsv').disabled=true;$('summary').textContent='解析後に「結果を整理・表示」を押してください。';events=[];lastByBand={low:null,high:null};lastOnset=-10;onsets=0;prevRms=0;lastTick=0;hasSignal=false;$('count').textContent='0';$('onsets').textContent='0';$('csv').disabled=true;draw()}
+function reset(){$('polyCsv').disabled=true;$('polyTable').textContent='';$('polyStatus').textContent='未解析';polyNotes=[];decoded=null;bandFrames=null;drumHits=[];bassHints=[];drumHints=[];freqBuf=null;$('hints').disabled=true;$('bassCsv').disabled=true;$('drumCsv').disabled=true;$('bassTable').textContent='';$('drumTable').textContent='';$('hintSummary').textContent='解析後、先に結果を整理してください。';cleaned=null;$('process').disabled=true;$('cleanCsv').disabled=true;$('summary').textContent='解析後に「結果を整理・表示」を押してください。';events=[];lastByBand={low:null,high:null};lastOnset=-10;onsets=0;prevRms=0;lastTick=0;hasSignal=false;$('count').textContent='0';$('onsets').textContent='0';$('csv').disabled=true;draw()}
 $('sensitivity').oninput=()=>{$('sensValue').textContent=$('sensitivity').value};
 $('file').onchange=()=>{stop(false);cleanupFile();const f=$('file').files[0];if(!f)return;url=URL.createObjectURL(f);player.src=url;player.load();$('start').disabled=false;$('meta').textContent=f.name+'（長さ取得中）';reset();log('ファイル選択：'+f.name+' / '+f.size+' bytes')};
 player.onloadedmetadata=()=>{const d=Number.isFinite(player.duration)?player.duration.toFixed(1)+'秒':'不明';$('meta').textContent=($('file').files[0]?.name||'音源')+' / '+d;log('メタデータ：'+d)};
@@ -100,7 +100,7 @@ function processEvents(){
 }
 $('process').onclick=processEvents;
 $('cleanCsv').onclick=()=>{if(!cleaned)return;saveCsv(cleaned,'band-transcriber-v11-cleaned.csv');log('整理後CSV保存：'+cleaned.length+'件')};
-window.addEventListener('pagehide',cleanupFile);draw();log('v1.1 起動。外部への音源送信なし');
+window.addEventListener('pagehide',cleanupFile);draw();log('v1.2 起動。外部への音源送信なし');
 
 
 // Entirely on-device: offline band-limited envelope extraction. No network or external models.
@@ -179,4 +179,67 @@ $('hints').onclick=async()=>{if(!cleaned){status('先に結果を整理してく
  }catch(e){log('楽器別解析エラー：'+e.name+' '+e.message);status('解析エラー：'+e.message)}finally{btn.disabled=false}};
 $('bassCsv').onclick=()=>{downloadText(csvText(bassHints.map(e=>[e.start.toFixed(3),e.duration.toFixed(3),e.midi,e.note,e.string,e.fret,e.score.toFixed(3),e.attack.toFixed(3),e.sustain.toFixed(3),e.bassLikelihood.toFixed(3)]),['start_sec','duration_sec','midi','note','string','fret','confidence','attack_brightness','low_sustain','bass_likelihood']),'band-transcriber-v11-bass-tab-hints.csv');log('ベースTAB候補CSV保存：'+bassHints.length+'件')};
 $('drumCsv').onclick=()=>{downloadText(csvText(drumHints.map(e=>[e.start.toFixed(3),e.kind,e.confidence.toFixed(3),e.low.toFixed(3),e.mid.toFixed(3),e.high.toFixed(3),e.tail.toFixed(3),e.midTail.toFixed(3)]),['start_sec','drum_guess','feature_ratio','low_ratio','mid_ratio','high_ratio','high_decay_sec','mid_decay_sec']),'band-transcriber-v11-drum-hints.csv');log('ドラム候補CSV保存：'+drumHints.length+'件')};
+
+// v1.2: offline polyphonic pitch candidates, independent of instrument classification.
+let polyNotes=[];
+$('file').addEventListener('change',()=>{$('polyStart').disabled=!$('file').files.length;$('polyCsv').disabled=true;polyNotes=[];$('polyTable').textContent='';});
+function fftMagnitudes(samples){
+ const n=samples.length,re=new Float64Array(n),im=new Float64Array(n);
+ for(let i=0;i<n;i++)re[i]=samples[i]*(.5-.5*Math.cos(2*Math.PI*i/(n-1)));
+ for(let i=1,j=0;i<n;i++){let bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){let x=re[i];re[i]=re[j];re[j]=x}}
+ for(let len=2;len<=n;len*=2){const ang=-2*Math.PI/len,wr=Math.cos(ang),wi=Math.sin(ang);for(let i=0;i<n;i+=len){let cr=1,ci=0;for(let j=0;j<len/2;j++){const a=i+j,b=a+len/2,tr=cr*re[b]-ci*im[b],ti=cr*im[b]+ci*re[b];re[b]=re[a]-tr;im[b]=im[a]-ti;re[a]+=tr;im[a]+=ti;const nr=cr*wr-ci*wi;ci=cr*wi+ci*wr;cr=nr}}}
+ const mag=new Float64Array(n/2);for(let i=0;i<mag.length;i++)mag[i]=Math.hypot(re[i],im[i]);return mag;
+}
+async function extractPoly(){
+ const f=$('file').files[0];if(!f)throw Error('音源なし');
+ const raw=await f.arrayBuffer(),ac=new (window.AudioContext||window.webkitAudioContext)();let audio;
+ try{audio=await ac.decodeAudioData(raw)}finally{await ac.close()}
+ // One mono offline resample; preserves original pitch, with no external dependency.
+ const sr=12000,len=Math.ceil(audio.duration*sr),off=new OfflineAudioContext(1,len,sr),src=off.createBufferSource();src.buffer=audio;src.connect(off.destination);src.start();
+ const render=await off.startRendering(),x=render.getChannelData(0),N=4096,hop=256;
+ const settings=$('polySens').value,ratio=settings==='conservative'?.30:settings==='sensitive'?.13:.20;
+ const midiMin=36,midiMax=88;const active=new Map(),finished=[],strengths=[];
+ let frames=0;
+ for(let pos=0;pos+N<=x.length;pos+=hop){
+  const slice=x.subarray(pos,pos+N);let power=0;for(let i=0;i<N;i++)power+=slice[i]*slice[i];const rms=Math.sqrt(power/N);
+  const t=(pos+N/2)/sr;
+  if(rms<.00045){for(const [m,v] of active){if(v.count>=2)finished.push({midi:m,start:v.start,duration:Math.max(.04,t-v.start),confidence:v.score/v.count});}active.clear();continue}
+  const mag=fftMagnitudes(slice),binHz=sr/N;
+  // Local spectral peak detection; assign peaks to candidate fundamentals to avoid counting harmonics as independent notes.
+  const peaks=[];for(let k=12;k<Math.min(mag.length-2,1900);k++)if(mag[k]>mag[k-1]&&mag[k]>=mag[k+1])peaks.push({hz:k*binHz,amp:mag[k]});
+  peaks.sort((a,b)=>b.amp-a.amp);const top=peaks.slice(0,65);const max=top.length?top[0].amp:0;
+  const scores=[];
+  for(let m=midiMin;m<=midiMax;m++){
+   const f0=440*Math.pow(2,(m-69)/12);let score=0,match=0;
+   for(let h=1;h<=Math.min(7,Math.floor(5300/f0));h++){
+    const target=f0*h,tolerance=Math.max(binHz*1.5,target*.013);let best=0;
+    for(const peak of top){const d=Math.abs(peak.hz-target);if(d<tolerance)best=Math.max(best,peak.amp*(1-d/tolerance*.5));}
+    if(best>max*.035){score+=best/Math.pow(h,.85);match++}
+   }
+   // Require fundamental/low harmonics; reduce octave-harmonic ghosts.
+   const fundamental=top.some(p=>Math.abs(p.hz-f0)<Math.max(binHz*1.5,f0*.016)&&p.amp>max*.045);
+   if(match>=2&&fundamental)scores.push({m,score});
+  }
+  scores.sort((a,b)=>b.score-a.score);const best=scores.length?scores[0].score:0;
+  const selected=[];
+  for(const candidate of scores){if(selected.length>=5)break;if(candidate.score<best*ratio)break;
+   // Reject octave duplication when weaker octave is mostly harmonic energy.
+   if(selected.some(s=>Math.abs(s.m-candidate.m)===12&&candidate.score<s.score*.72))continue;
+   selected.push(candidate);
+  }
+  const present=new Set(selected.map(z=>z.m));
+  for(const [m,v] of active){if(!present.has(m)){v.misses++;if(v.misses>=2){if(v.count>=2)finished.push({midi:m,start:v.start,duration:Math.max(.04,t-v.start),confidence:v.score/v.count});active.delete(m)}}}
+  for(const c of selected){let a=active.get(c.m);if(!a){a={start:t,count:0,score:0,misses:0};active.set(c.m,a)}a.count++;a.score+=Math.min(1,c.score/(best+1e-9));a.misses=0;}
+  frames++;
+  if(frames%75===0){$('polyStatus').textContent='多声音程解析中 '+Math.min(100,Math.round(100*(pos+N)/x.length))+'%';await new Promise(r=>setTimeout(r,0));}
+ }
+ const end=x.length/sr;for(const [m,v] of active)if(v.count>=2)finished.push({midi:m,start:v.start,duration:Math.max(.04,end-v.start),confidence:v.score/v.count});
+ // Consolidate short dropouts; note: duration is a rough activity span, not a measured key-release.
+ finished.sort((a,b)=>a.midi-b.midi||a.start-b.start);const merged=[];
+ for(const n of finished){const prev=merged[merged.length-1];if(prev&&prev.midi===n.midi&&n.start-(prev.start+prev.duration)<.075){prev.duration=Math.max(prev.duration,n.start+n.duration-prev.start);prev.confidence=Math.max(prev.confidence,n.confidence)}else merged.push({...n})}
+ return merged.filter(n=>n.duration>=.06).sort((a,b)=>a.start-b.start||a.midi-b.midi);
+}
+$('polyStart').onclick=async()=>{const b=$('polyStart');b.disabled=true;$('polyCsv').disabled=true;log('多声音程解析開始：'+$('polySens').value);try{polyNotes=await extractPoly();$('polyStatus').textContent='音程候補 '+polyNotes.length+'件（楽器未分類・推定）';$('polyCsv').disabled=!polyNotes.length;tableRows('polyTable',['開始秒','音程','長さ','信頼度'],polyNotes.slice(0,65).map(n=>[n.start.toFixed(2),noteName(n.midi),n.duration.toFixed(2),n.confidence.toFixed(2)]));log('多声音程解析完了：'+polyNotes.length+'件 / 0〜9秒 '+polyNotes.filter(n=>n.start<9).length+'件')}catch(e){log('多声音程解析エラー：'+e.name+' '+e.message);$('polyStatus').textContent='解析エラー：'+e.message}finally{b.disabled=false}};
+$('polyCsv').onclick=()=>{downloadText(csvText(polyNotes.map(n=>[n.start.toFixed(3),n.duration.toFixed(3),n.midi,noteName(n.midi),n.confidence.toFixed(3),'unassigned']),['start_sec','duration_sec','midi','note','confidence','instrument']),'band-transcriber-v12-polyphonic.csv');log('多声音程CSV保存：'+polyNotes.length+'件')};
+
 })();</script></body></html>
