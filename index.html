@@ -91,7 +91,7 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
 <div class="wrap">
   <header>
     <h1>Band Transcriber Web</h1>
-    <p class="sub">音源 → 五線譜。処理はすべてこの端末のブラウザ内で行い、音源は外部に送信しません。(試作 0.2・ピアノ/ベース/ドラム)</p>
+    <p class="sub">音源 → 五線譜。処理はすべてこの端末のブラウザ内で行い、音源は外部に送信しません。(試作 0.3・ギター譜/タブ譜・コード・ピアノ/ベース/ドラム)</p>
   </header>
 
   <section class="card" aria-labelledby="h-src">
@@ -108,7 +108,16 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
     <h2 id="h-set">2. 設定</h2>
     <div class="grid">
       <label class="f" for="inst">楽器
-        <select id="inst"><option value="keys" selected>ピアノ・ギターなど</option><option value="bass">ベース</option><option value="drums">ドラム</option></select>
+        <select id="inst"><option value="tab" selected>ギター(タブ譜つき)</option><option value="keys">ピアノなど(五線)</option><option value="bass">ベース</option><option value="drums">ドラム</option></select>
+      </label>
+      <label class="f" for="tuning">チューニング
+        <select id="tuning"><option value="0">標準 (EADGBE)</option><option value="-1">半音下げ</option><option value="-2">全音下げ</option><option value="drop">ドロップD</option></select>
+      </label>
+      <label class="f" for="capo">カポ
+        <select id="capo"><option value="0">なし</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option></select>
+      </label>
+      <label class="f" for="chords">コード記号
+        <select id="chords"><option value="on" selected>つける</option><option value="off">つけない</option></select>
       </label>
       <label class="f" for="start">開始位置(秒)<input id="start" type="number" min="0" step="1" value="0" inputmode="decimal"></label>
       <label class="f" for="len">解析する長さ(秒)<input id="len" type="number" min="5" max="120" step="5" value="30" inputmode="decimal"></label>
@@ -152,6 +161,7 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
       </div>
     </div>
     <div class="warn" id="warn" hidden></div>
+    <p class="note" id="chord-line" hidden style="margin:0 0 8px;font-weight:600"></p>
     <div class="paper" id="paper"><p class="empty">採譜すると、ここに楽譜が表示されます。</p></div>
     <details>
       <summary>MusicXML(MuseScoreなどに貼り付けて使えます)</summary>
@@ -205,8 +215,8 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
     return s / (e0 || 1);
   }
 
-  function gridR(onsets, wsum, bpm) {
-    var slot = 15 / bpm, C = 0, S = 0;
+  function gridR(onsets, wsum, bpm, mul) {
+    var slot = 15 / bpm * (mul || 1), C = 0, S = 0;
     for (var i = 0; i < onsets.length; i++) {
       var th = 2 * Math.PI * (onsets[i].t / slot);
       C += onsets[i].a * Math.cos(th); S += onsets[i].a * Math.sin(th);
@@ -231,7 +241,7 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
         var bestScore = -1;
         for (b = 55; b <= 190; b += 0.1) {
           var g = gridR(onsets, wsum, b), cm = comb[Math.min(comb.length - 1, Math.round((b - 55) / 0.5))] / cmax;
-          var sc = g.R * (0.8 + 0.2 * cm) * Math.sqrt(prior(b));
+          var sc = g.R * (0.8 + 0.2 * cm) * (0.65 + 0.35 * gridR(onsets, wsum, b, 4).R) * Math.sqrt(prior(b));
           if (sc > bestScore) { bestScore = sc; bpm0 = b; }
         }
       } else {
@@ -494,17 +504,208 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
     return { notes: notes, env: env, count: count };
   }
 
-  /* opts: {bpm, t0, beatsPerBar, fifths, split, layout: 'grand' | 'bass' | 'drums'} */
+  /* ---------- guitar: tab assignment ---------- */
+  var STD_TUNING = [40, 45, 50, 55, 59, 64]; // E2 A2 D3 G3 B3 E4 (low -> high)
+  function tabCands(pitches, open, maxFret) {
+    var n = pitches.length, ns = open.length, res = [], used = [], cur = new Array(n), s;
+    for (s = 0; s < ns; s++) used.push(false);
+    (function rec(i) {
+      if (res.length > 600) return;
+      if (i === n) { res.push(cur.slice()); return; }
+      for (var q = 0; q < ns; q++) {
+        if (used[q]) continue;
+        var f = pitches[i] - open[q];
+        if (f < 0 || f > maxFret) continue;
+        used[q] = true; cur[i] = [q, f]; rec(i + 1); used[q] = false;
+      }
+    })(0);
+    return res;
+  }
+  function tabIntra(c) {
+    var fr = [], sum = 0, strs = [], i;
+    c.forEach(function (x) { sum += x[1] + 0.5 * Math.max(0, x[1] - 12); strs.push(x[0]); if (x[1] > 0) fr.push(x[1]); });
+    var span = fr.length ? Math.max.apply(null, fr) - Math.min.apply(null, fr) : 0, gaps = 0;
+    strs.sort(function (a, b) { return a - b; });
+    for (i = 1; i < strs.length; i++) gaps += strs[i] - strs[i - 1] - 1;
+    return 0.12 * sum / c.length + (span > 4 ? 50 : 0) + 0.6 * span + 0.25 * gaps;
+  }
+  function tabPos(c) {
+    var fr = c.filter(function (x) { return x[1] > 0; });
+    if (!fr.length) return null;
+    var t = 0; fr.forEach(function (x) { t += x[1]; });
+    return t / fr.length;
+  }
+  /* events: array of ascending pitch arrays. returns per event {kept:[pitches], tab:{pitch:{string(1=high e),fret}}} */
+  function assignTab(events, open, maxFret) {
+    open = open || STD_TUNING; maxFret = maxFret || 22;
+    var nStr = open.length, layers = [], i, j, k;
+    events.forEach(function (ev) {
+      var ps = ev.slice(), cands = tabCands(ps, open, maxFret), guard = 0;
+      while (!cands.length && ps.length && guard++ < 12) {          // drop the pitch with the fewest playable positions
+        var worst = 0, wc = 1e9;
+        ps.forEach(function (p, idx) { var c = 0; for (var q = 0; q < nStr; q++) { var f = p - open[q]; if (f >= 0 && f <= maxFret) c++; } if (c < wc) { wc = c; worst = idx; } });
+        ps.splice(worst, 1); cands = ps.length ? tabCands(ps, open, maxFret) : [];
+      }
+      var scored = cands.map(function (c) { return { c: c, cost: tabIntra(c), pos: tabPos(c) }; }).sort(function (a, b) { return a.cost - b.cost; }).slice(0, 40);
+      layers.push({ ps: ps, cands: scored });
+    });
+    var best = [], back = [];
+    for (i = 0; i < layers.length; i++) {
+      var L = layers[i];
+      best.push(new Float64Array(L.cands.length)); back.push(new Int32Array(L.cands.length));
+      if (!L.cands.length) continue;
+      var pi = i - 1; while (pi >= 0 && !layers[pi].cands.length) pi--;
+      for (j = 0; j < L.cands.length; j++) {
+        var cj = L.cands[j];
+        if (pi < 0) { best[i][j] = cj.cost; back[i][j] = -1; continue; }
+        var bv = 1e18, bk = 0, P = layers[pi];
+        for (k = 0; k < P.cands.length; k++) {
+          var ck = P.cands[k], tr = 0;
+          if (ck.pos !== null && cj.pos !== null) tr += 0.35 * Math.abs(ck.pos - cj.pos);
+          if (ck.c.length === 1 && cj.c.length === 1) tr += 0.08 * Math.abs(ck.c[0][0] - cj.c[0][0]);
+          var v = best[pi][k] + tr;
+          if (v < bv) { bv = v; bk = k; }
+        }
+        best[i][j] = cj.cost + bv; back[i][j] = bk;
+      }
+    }
+    var out = new Array(layers.length), cur = -1, li;
+    for (li = layers.length - 1; li >= 0; li--) {
+      if (!layers[li].cands.length) { out[li] = { kept: [], tab: {} }; continue; }
+      if (cur < 0 || !layers[li + 1] || !layers[li + 1].cands.length) {
+        var bb = 1e18; for (j = 0; j < best[li].length; j++) if (best[li][j] < bb) { bb = best[li][j]; cur = j; }
+      }
+      var cand = layers[li].cands[cur].c, tab = {};
+      layers[li].ps.forEach(function (p, idx) { tab[p] = { string: nStr - cand[idx][0], fret: cand[idx][1] }; });
+      out[li] = { kept: layers[li].ps.slice(), tab: tab };
+      // follow back pointer to the previous non-empty layer
+      var nxt = back[li][cur], pj = li - 1; while (pj >= 0 && !layers[pj].cands.length) pj--;
+      cur = pj >= 0 ? nxt : -1;
+      if (pj >= 0) { for (var z = li - 1; z > pj; z--) out[z] = { kept: [], tab: {} }; li = pj + 1; }
+    }
+    return out;
+  }
+
+  /* ---------- chords from audio (chroma + templates + Viterbi) ---------- */
+  var CHORD_TYPES = [
+    { k: 'major', t: '', iv: [0, 4, 7], pen: 0 },
+    { k: 'minor', t: 'm', iv: [0, 3, 7], pen: 0 },
+    { k: 'dominant', t: '7', iv: [0, 4, 7, 10], pen: 0.08 },
+    { k: 'minor-seventh', t: 'm7', iv: [0, 3, 7, 10], pen: 0.08 },
+    { k: 'major-seventh', t: 'maj7', iv: [0, 4, 7, 11], pen: 0.1 }
+  ];
+  var CH_W = [1, 0.85, 0.75, 0.6];
+  var CHORD_T = [];
+  (function () {
+    for (var root = 0; root < 12; root++) CHORD_TYPES.forEach(function (ct, ti) {
+      var v = new Float64Array(12), n = 0;
+      var HP = [[0, 1], [0, 0.5], [7, 0.33], [0, 0.25], [4, 0.2], [7, 0.17]];   // overtone pitch-class offsets / weights
+      ct.iv.forEach(function (iv, wi) { HP.forEach(function (h) { v[(root + iv + h[0]) % 12] += CH_W[wi] * h[1]; }); });
+      for (var i = 0; i < 12; i++) n += v[i] * v[i];
+      n = Math.sqrt(n); for (i = 0; i < 12; i++) v[i] /= n;
+      CHORD_T.push({ root: root, type: ti, v: v });
+    });
+  })();
+
+  function chromagram(x) {
+    var N = 4096, H = 2048, RATE = 22050, nf = Math.max(0, Math.floor((x.length - N) / H) + 1), fft = makeFFT(N);
+    var win = new Float64Array(N), re = new Float64Array(N), im = new Float64Array(N), pcOf = new Int8Array(N / 2), i, f, k;
+    for (i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+    for (k = 0; k < N / 2; k++) { var fr = k * RATE / N; pcOf[k] = (fr < 80 || fr > 2000) ? -1 : ((Math.round(12 * Math.log(fr / 440) / Math.LN2) + 9) % 12 + 12) % 12; }
+    var chroma = new Float32Array(nf * 12), en = new Float32Array(nf);
+    for (f = 0; f < nf; f++) {
+      for (i = 0; i < N; i++) { re[i] = x[f * H + i] * win[i]; im[i] = 0; }
+      fft(re, im);
+      for (k = 0; k < N / 2; k++) {
+        if (pcOf[k] < 0) continue;
+        var v = Math.sqrt(Math.sqrt(re[k] * re[k] + im[k] * im[k]) / (N / 4));
+        chroma[f * 12 + pcOf[k]] += v; en[f] += v;
+      }
+    }
+    return { chroma: chroma, en: en, nf: nf, hop: H, rate: RATE, win: N };
+  }
+
+  function keyScale(key) {
+    var set = {}, name = (key && key.name) || 'C major', ti = NAMES_SHARP.indexOf(name.split(' ')[0]);
+    if (ti < 0) return set;
+    var maj = /minor/.test(name) ? (ti + 3) % 12 : ti;
+    [0, 2, 4, 5, 7, 9, 11].forEach(function (d) { set[(maj + d) % 12] = true; });
+    return set;
+  }
+
+  /* returns [{slot, root, type}] where slot is counted in 16ths from t0 (4 slots per beat); only changes are listed */
+  function detectChords(x, beatSec, t0, nBeats, bpb, key) {
+    var cg = chromagram(x), nf = cg.nf, b, c, f, i;
+    if (!nf || nBeats <= 0) return [];
+    var maxEn = 0; for (f = 0; f < nf; f++) if (cg.en[f] > maxEn) maxEn = cg.en[f];
+    var beats = [], sec = function (fr) { return (fr * cg.hop + cg.win / 2) / cg.rate; };
+    for (b = 0; b < nBeats; b++) {
+      var a = t0 + b * beatSec + 0.05, e = a + beatSec, v = new Float64Array(12), cnt = 0, en = 0;
+      for (f = 0; f < nf; f++) { var tc = sec(f); if (tc >= a && tc < e) { for (i = 0; i < 12; i++) v[i] += cg.chroma[f * 12 + i]; en += cg.en[f]; cnt++; } }
+      if (!cnt) { beats.push(null); continue; }
+      en /= cnt;
+      if (en < 0.06 * maxEn) { beats.push(null); continue; }
+      var nn = 0; for (i = 0; i < 12; i++) nn += v[i] * v[i]; nn = Math.sqrt(nn) || 1;
+      for (i = 0; i < 12; i++) v[i] /= nn;
+      beats.push(v);
+    }
+    var scale = keyScale(key), NC = CHORD_T.length, em = [];
+    for (b = 0; b < nBeats; b++) {
+      var row = new Float64Array(NC);
+      if (beats[b]) for (c = 0; c < NC; c++) {
+        var t = CHORD_T[c], d = 0;
+        for (i = 0; i < 12; i++) d += beats[b][i] * t.v[i];
+        row[c] = d - CHORD_TYPES[t.type].pen + (scale[t.root] ? 0.03 : 0);
+      }
+      em.push(row);
+    }
+    var score = [], from = [];
+    for (b = 0; b < nBeats; b++) {
+      var sc = new Float64Array(NC), fr = new Int16Array(NC);
+      if (b === 0) { for (c = 0; c < NC; c++) sc[c] = em[0][c]; }
+      else {
+        var lam = (b % bpb === 0) ? 0.10 : 0.18, bi = 0, bv = -1e18;
+        for (c = 0; c < NC; c++) if (score[b - 1][c] > bv) { bv = score[b - 1][c]; bi = c; }
+        for (c = 0; c < NC; c++) {
+          var stay = score[b - 1][c], chg = bv - lam;
+          if (!beats[b]) { sc[c] = stay; fr[c] = c; }              // silence: keep the chord
+          else if (stay >= chg) { sc[c] = stay + em[b][c]; fr[c] = c; }
+          else { sc[c] = chg + em[b][c]; fr[c] = bi; }
+        }
+      }
+      score.push(sc); from.push(fr);
+    }
+    var path = new Int16Array(nBeats), bc = 0, bs = -1e18;
+    for (c = 0; c < NC; c++) if (score[nBeats - 1][c] > bs) { bs = score[nBeats - 1][c]; bc = c; }
+    for (b = nBeats - 1; b >= 0; b--) { path[b] = bc; bc = from[b][bc]; }
+    var out = [], last = -1;
+    for (b = 0; b < nBeats; b++) {
+      if (!beats[b] && last < 0) continue;
+      if (path[b] !== last) { out.push({ slot: b * 4, root: CHORD_T[path[b]].root, type: CHORD_T[path[b]].type }); last = path[b]; }
+    }
+    return out;
+  }
+  function chordName(ch, fifths) {
+    var names = fifths < 0 ? NAMES_FLAT : NAMES_SHARP;
+    return names[ch.root] + CHORD_TYPES[ch.type].t;
+  }
+  function chordXml(ch, fifths) {
+    var nm = (fifths < 0 ? NAMES_FLAT : NAMES_SHARP)[ch.root], ct = CHORD_TYPES[ch.type];
+    return '<harmony><root><root-step>' + nm[0] + '</root-step>' + (nm.length > 1 ? '<root-alter>' + (nm[1] === '#' ? 1 : -1) + '</root-alter>' : '') +
+      '</root><kind text="' + ct.t + '">' + ct.k + '</kind></harmony>';
+  }
+
+  /* opts: {bpm, t0, beatsPerBar, fifths, split, layout: 'grand' | 'bass' | 'drums' | 'tab', chords, tuning, capo} */
   var DRUM_MAP = { 36: { step: 'F', oct: 4, head: null, name: 'Bass Drum' }, 38: { step: 'C', oct: 5, head: null, name: 'Snare' }, 42: { step: 'G', oct: 5, head: 'x', name: 'Hi-Hat' } };
   function buildScore(notes, opts) {
-    var layout = opts.layout || 'grand', drums = layout === 'drums', ns = layout === 'grand' ? 2 : 1;
+    var layout = opts.layout || 'grand', drums = layout === 'drums', tab = layout === 'tab', ns = (layout === 'grand' || tab) ? 2 : 1;
     var bpb = opts.beatsPerBar || 4, M = bpb * 4, slotSec = 15 / opts.bpm, split = opts.split || 60;
-    var staves = ns === 2 ? [new Map(), new Map()] : [new Map()], placed = 0, dropped = 0, maxEnd = 0;
+    var staves = layout === 'grand' ? [new Map(), new Map()] : [new Map()], placed = 0, dropped = 0, maxEnd = 0;
     notes.forEach(function (n) {
       var s = Math.round((n.t - opts.t0) / slotSec);
       if (s < 0) { if (s >= -1) s = 0; else { dropped++; return; } }
       var e = drums ? s + 2 : Math.max(s + 1, Math.round((n.t + n.d - opts.t0) / slotSec));
-      var si = ns === 1 ? 0 : (n.p >= split ? 0 : 1), m = staves[si], ev = m.get(s);
+      var si = (ns === 1 || tab) ? 0 : (n.p >= split ? 0 : 1), m = staves[si], ev = m.get(s);
       if (!ev) { ev = new Map(); m.set(s, ev); }
       ev.set(n.p, Math.max(ev.get(n.p) || 0, e));
       placed++; if (e > maxEnd) maxEnd = e;
@@ -538,7 +739,7 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
         }
         var whole = it.pitches === null && it.len === M && it.start % M === 0;
         pieces.forEach(function (pc, k) {
-          pc.pitches = it.pitches; pc.whole = whole;
+          pc.pitches = it.pitches; pc.whole = whole; pc.tab = it.tab || null;
           pc.tieStop = !!it.pitches && k > 0; pc.tieStart = !!it.pitches && k < pieces.length - 1;
           perMeasure[pc.m].push(pc);
         });
@@ -561,23 +762,40 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
             '<instrument id="P1-I' + p + '"/>' + tail + (dm.head ? '<notehead>' + dm.head + '</notehead>' : '') + '</note>';
           return;
         }
-        var sp = spell(p + shift, fifths);
+        var sp = spell(p + shift, fifths), tb = '';
+        if (tab && staff === 2 && pc.tab && pc.tab[p]) tb = '<technical><string>' + pc.tab[p].string + '</string><fret>' + pc.tab[p].fret + '</fret></technical>';
         x += '<note>' + (i ? '<chord/>' : '') + '<pitch><step>' + sp.step + '</step>' + (sp.alter ? '<alter>' + sp.alter + '</alter>' : '') +
           '<octave>' + sp.octave + '</octave></pitch><duration>' + pc.d + '</duration>' +
           (pc.tieStop ? '<tie type="stop"/>' : '') + (pc.tieStart ? '<tie type="start"/>' : '') + tail + stf(staff) +
-          ((pc.tieStop || pc.tieStart) ? '<notations>' + (pc.tieStop ? '<tied type="stop"/>' : '') + (pc.tieStart ? '<tied type="start"/>' : '') + '</notations>' : '') +
+          ((pc.tieStop || pc.tieStart || tb) ? '<notations>' + (pc.tieStop ? '<tied type="stop"/>' : '') + (pc.tieStart ? '<tied type="start"/>' : '') + tb + '</notations>' : '') +
           '</note>';
       });
       return x;
     }
-    var pm = staves.map(function (m) { return piecesFor(itemsFor(m)); }), xml = '';
+    var tuning = opts.tuning || STD_TUNING, capo = opts.capo || 0, openEff = tuning.map(function (t) { return t + capo; }), pm, xml = '';
+    if (tab) {
+      var its = itemsFor(staves[0]), evIdx = [], evs = [];
+      its.forEach(function (it, ix) { if (it.pitches) { evIdx.push(ix); evs.push(it.pitches); } });
+      var asg = assignTab(evs, openEff, 24);
+      evIdx.forEach(function (ix, q) { its[ix].pitches = asg[q].kept.length ? asg[q].kept : null; its[ix].tab = asg[q].tab; });
+      var pcs = piecesFor(its); pm = [pcs, pcs];
+    } else pm = staves.map(function (m) { return piecesFor(itemsFor(m)); });
+    var chordsByM = {};
+    (opts.chords || []).forEach(function (ch) { var mi = Math.floor(ch.slot / M); (chordsByM[mi] = chordsByM[mi] || []).push({ pos: ch.slot - mi * M, ch: ch }); });
     var partList = drums
       ? '<part-list><score-part id="P1"><part-name>Drums</part-name>' +
         [36, 38, 42].map(function (p) { return '<score-instrument id="P1-I' + p + '"><instrument-name>' + DRUM_MAP[p].name + '</instrument-name></score-instrument>'; }).join('') +
         [36, 38, 42].map(function (p) { return '<midi-instrument id="P1-I' + p + '"><midi-channel>10</midi-channel><midi-unpitched>' + (p + 1) + '</midi-unpitched></midi-instrument>'; }).join('') +
         '</score-part></part-list>'
       : '<part-list><score-part id="P1"><part-name>' + (layout === 'bass' ? 'Bass' : 'Score') + '</part-name></score-part></part-list>';
-    var clefs = layout === 'grand' ? '<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>'
+    var tabDetails = '';
+    if (tab) {
+      tabDetails = '<staff-details number="2"><staff-lines>' + tuning.length + '</staff-lines>' + tuning.map(function (t, i) {
+        var sp = spell(t, 0); return '<staff-tuning line="' + (i + 1) + '"><tuning-step>' + sp.step + '</tuning-step>' + (sp.alter ? '<tuning-alter>' + sp.alter + '</tuning-alter>' : '') + '<tuning-octave>' + sp.octave + '</tuning-octave></staff-tuning>';
+      }).join('') + (capo ? '<capo>' + capo + '</capo>' : '') + '</staff-details>';
+    }
+    var clefs = tab ? '<staves>2</staves><clef number="1"><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef><clef number="2"><sign>TAB</sign><line>5</line></clef>' + tabDetails
+      : layout === 'grand' ? '<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>'
       : layout === 'bass' ? '<clef><sign>F</sign><line>4</line><clef-octave-change>-1</clef-octave-change></clef>'
       : '<clef><sign>percussion</sign></clef>';
     xml += '<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="3.1"><work><work-title>' + esc(opts.title || 'Band Transcriber 試作') + '</work-title></work>' + partList + '<part id="P1">';
@@ -587,6 +805,14 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
         xml += '<attributes><divisions>4</divisions>' + (drums ? '' : '<key><fifths>' + fifths + '</fifths></key>') + '<time><beats>' + bpb + '</beats><beat-type>4</beat-type></time>' + clefs + '</attributes>' +
           '<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>' + Math.round(opts.bpm) + '</per-minute></metronome></direction-type><sound tempo="' + Math.round(opts.bpm) + '"/></direction>';
       }
+      if (chordsByM[m]) {      // chord symbols: placed with forward/backup so they can sit anywhere in the bar
+        var cur = 0;
+        chordsByM[m].sort(function (a, b) { return a.pos - b.pos; }).forEach(function (c) {
+          if (c.pos > cur) { xml += '<forward><duration>' + (c.pos - cur) + '</duration></forward>'; cur = c.pos; }
+          xml += chordXml(c.ch, fifths);
+        });
+        if (cur > 0) xml += '<backup><duration>' + cur + '</duration></backup>';
+      }
       pm[0][m].forEach(function (pc) { xml += noteXml(pc, 1); });
       if (ns === 2) { xml += '<backup><duration>' + M + '</duration></backup>'; pm[1][m].forEach(function (pc) { xml += noteXml(pc, 2); }); }
       xml += '</measure>';
@@ -595,7 +821,7 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
     return { xml: xml, measures: nMeasures, placed: placed, dropped: dropped };
   }
 
-  var Engine = { resample: resample, FPS: FPS, cleanNotes: cleanNotes, monophonic: monophonic, lowpass: lowpass, detectDrums: detectDrums, estimateGrid: estimateGrid, barOrigin: barOrigin, estimateKey: estimateKey, buildScore: buildScore, decompose: decompose };
+  var Engine = { resample: resample, FPS: FPS, cleanNotes: cleanNotes, monophonic: monophonic, lowpass: lowpass, detectDrums: detectDrums, estimateGrid: estimateGrid, barOrigin: barOrigin, estimateKey: estimateKey, buildScore: buildScore, assignTab: assignTab, chromagram: chromagram, detectChords: detectChords, chordName: chordName, STD_TUNING: STD_TUNING, decompose: decompose };
   if (typeof module !== 'undefined' && module.exports) module.exports = Engine; else root.Engine = Engine;
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
@@ -681,7 +907,7 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
       for (i = 0; i < x.length; i++) y[i] = x[i] * g;
 
       var mode = $('inst').value, sf = $('sens').value, s = SENS[sf] || SENS.mid;
-      S.mode = mode;
+      S.mode = mode; S.audio = y;
       if (mode === 'drums') {
         status('打楽器を解析中…'); await tick();
         var dr = Engine.detectDrums(y, { low: 0.75, mid: 1, high: 1.4 }[sf] || 1);
@@ -689,7 +915,7 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
         log('キック ' + dr.count[36] + ' / スネア ' + dr.count[38] + ' / ハイハット ' + dr.count[42]);
         if (!S.notes.length) throw new Error('打音を検出できませんでした。「細かく拾う」にするか、別の区間を試してください。');
       } else {
-        var isBass = mode === 'bass', inp = isBass ? Engine.lowpass(y, 22050, 700, 4) : y;
+        var isBass = mode === 'bass', isGtr = mode === 'tab', inp = isBass ? Engine.lowpass(y, 22050, 700, 4) : y;
         status('AIモデルを準備中…'); await tick();
         var model = await getModel();
         var bp = new BP.BasicPitch(model), frames = [], onsets = [], t1 = performance.now();
@@ -697,13 +923,14 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
         await bp.evaluateModel(inp, function (f, o) { for (var k = 0; k < f.length; k++) { frames.push(f[k]); onsets.push(o[k]); } },
           function (p) { $('prog').value = p; });
         log('推論 ' + ((performance.now() - t1) / 1000).toFixed(1) + '秒 / フレーム ' + frames.length);
-        var raw = BP.noteFramesToTime(BP.outputToNotesPoly(frames, onsets, s[0], s[1], s[2], true, isBass ? 450 : null, isBass ? 30 : null, true, 11));
+        var raw = BP.noteFramesToTime(BP.outputToNotesPoly(frames, onsets, s[0], s[1], s[2], true, isBass ? 450 : isGtr ? 1400 : null, isBass ? 30 : isGtr ? 70 : null, true, 11));
         var list = raw.map(function (n) { return { t: n.startTimeSeconds, d: n.durationSeconds, p: n.pitchMidi, a: n.amplitude }; });
         if (isBass) list = list.filter(function (n) { return n.p >= 28 && n.p <= 69; });
+        if (isGtr) list = list.filter(function (n) { return n.p >= 40 && n.p <= 88; });
         var cleaned = Engine.cleanNotes(list);
         if (isBass) cleaned = Engine.monophonic(cleaned);
         S.notes = cleaned.sort(function (p, q) { return p.t - q.t || p.p - q.p; });
-        var lo = isBass ? 7 : 0, hi = isBass ? 48 : 87;   // pitch bins: bin 0 = MIDI 21
+        var lo = isBass ? 7 : isGtr ? 19 : 0, hi = isBass ? 48 : isGtr ? 67 : 87;   // pitch bins: bin 0 = MIDI 21
         S.env = new Float32Array(onsets.length);
         for (i = 0; i < onsets.length; i++) { var r = onsets[i], sum = 0; for (var k2 = lo; k2 <= hi && k2 < r.length; k2++) sum += r[k2]; S.env[i] = sum; }
         log('検出した音符: ' + raw.length + ' → 採用 ' + S.notes.length);
@@ -723,9 +950,20 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
     var seq = ++S.renderSeq, bpb = parseInt($('ts').value, 10) || 4, manual = parseFloat($('bpm').value) || 0;
     var grid = Engine.estimateGrid(S.notes, S.env, manual);
     var sh = ((S.shift % bpb) + bpb) % bpb, t0 = Engine.barOrigin(grid, S.notes, bpb, sh);
-    var layout = S.mode === 'drums' ? 'drums' : S.mode === 'bass' ? 'bass' : 'grand';
+    var layout = S.mode === 'drums' ? 'drums' : S.mode === 'bass' ? 'bass' : S.mode === 'tab' ? 'tab' : 'grand';
     var key = layout === 'drums' ? { fifths: 0, name: '—' } : Engine.estimateKey(S.notes);
-    var r = Engine.buildScore(S.notes, { bpm: grid.bpm, t0: t0, beatsPerBar: bpb, fifths: key.fifths, layout: layout });
+    var tv = $('tuning').value, tuning = Engine.STD_TUNING.slice(), capo = parseInt($('capo').value, 10) || 0, chords = [];
+    if (tv === 'drop') tuning[0] -= 2; else tuning = tuning.map(function (t) { return t + parseInt(tv, 10); });
+    var wantCh = $('chords').value === 'on' && (layout === 'tab' || layout === 'grand') && S.audio;
+    if (wantCh) {
+      var beatSec = 60 / grid.bpm, endT = 0;
+      S.notes.forEach(function (n) { if (n.t + n.d > endT) endT = n.t + n.d; });
+      var nB = Math.max(bpb, Math.ceil((endT - t0) / beatSec) + 1);
+      try { chords = Engine.detectChords(S.audio, beatSec, t0, nB, bpb, key); } catch (e) { log('コード検出エラー: ' + e.message); }
+    }
+    var r = Engine.buildScore(S.notes, { bpm: grid.bpm, t0: t0, beatsPerBar: bpb, fifths: key.fifths, layout: layout, tuning: tuning, capo: capo, chords: chords });
+    var cl = $('chord-line'); cl.hidden = !chords.length;
+    cl.textContent = chords.length ? 'コード進行: ' + chords.map(function (c) { return Engine.chordName(c, key.fifths); }).join(' → ') : '';
     $('bpm').placeholder = '自動 ' + grid.bpm; S.lastBpm = grid.bpm;
     $('s-bpm').textContent = grid.bpm.toFixed(1);
     $('s-conf').textContent = Math.round(grid.conf * 100) + '%';
@@ -768,6 +1006,7 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
     status('テスト音源(100 BPM・4小節・ハ長調)を使います。'); analyze();
   });
   var HINTS = {
+    tab: 'ギターの音を拾い、五線譜とタブ譜の2段で書きます。弦とフレットは押さえやすさで自動的に決めます。コードは音源全体から推定します。',
     keys: '和音も拾います。高音部と低音部の2段で書きます。',
     bass: '低い音だけを、1音ずつの旋律として拾います。楽譜は実音の1オクターブ上に書きます。',
     drums: 'キック・スネア・ハイハットだけを、音の出るタイミングから判定します。AIモデルは使わないので速く終わります。'
@@ -776,6 +1015,7 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
   $('inst').addEventListener('change', hint); hint();
   $('go').addEventListener('click', analyze);
   $('bpm').addEventListener('change', render);
+  ['tuning', 'capo', 'chords'].forEach(function (id) { $(id).addEventListener('change', render); });
   $('ts').addEventListener('change', render);
   function scaleBpm(k) { var v = Math.round(S.lastBpm * k * 10) / 10; if (v >= 30 && v <= 300) { $('bpm').value = v; render(); } }
   $('bpm-h').addEventListener('click', function () { scaleBpm(0.5); });
