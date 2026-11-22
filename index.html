@@ -91,7 +91,7 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
 <div class="wrap">
   <header>
     <h1>Band Transcriber Web</h1>
-    <p class="sub">音源 → 五線譜。処理はすべてこの端末のブラウザ内で行い、音源は外部に送信しません。(試作 0.1・1パート向け)</p>
+    <p class="sub">音源 → 五線譜。処理はすべてこの端末のブラウザ内で行い、音源は外部に送信しません。(試作 0.2・ピアノ/ベース/ドラム)</p>
   </header>
 
   <section class="card" aria-labelledby="h-src">
@@ -101,18 +101,22 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
       <button id="synth" type="button">テスト音源で試す</button>
     </div>
     <audio id="player" controls hidden></audio>
-    <p class="note" style="margin-top:10px">ベースだけ、ピアノだけなど、1つの楽器が目立つ音源が向いています。バンド全体の音源は音符が混ざります。</p>
+    <p class="note" style="margin-top:10px">楽器ごとに分けた音源が向いています(ベースだけ、ドラムだけ、ピアノだけ)。バンド全体の音源は、選んだ楽器以外の音も混ざります。</p>
   </section>
 
   <section class="card" aria-labelledby="h-set">
     <h2 id="h-set">2. 設定</h2>
     <div class="grid">
+      <label class="f" for="inst">楽器
+        <select id="inst"><option value="keys" selected>ピアノ・ギターなど</option><option value="bass">ベース</option><option value="drums">ドラム</option></select>
+      </label>
       <label class="f" for="start">開始位置(秒)<input id="start" type="number" min="0" step="1" value="0" inputmode="decimal"></label>
       <label class="f" for="len">解析する長さ(秒)<input id="len" type="number" min="5" max="120" step="5" value="30" inputmode="decimal"></label>
       <label class="f" for="sens">音の拾い方
         <select id="sens"><option value="low">控えめ(ノイズ少)</option><option value="mid" selected>標準</option><option value="high">細かく拾う</option></select>
       </label>
     </div>
+    <p class="note" id="inst-hint" style="margin-top:10px"></p>
     <div class="row" style="margin-top:14px">
       <button id="go" class="primary" type="button">採譜する</button>
       <span class="status" id="status" role="status" aria-live="polite">音源を選んでください。</span>
@@ -165,8 +169,10 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
     <ul class="lim">
       <li>テンポは曲全体で一定と仮定します(テンポ変化・ルバートは未対応)。</li>
       <li>3連符は未対応です。16分音符の格子に丸めます。</li>
-      <li>五線は C4 を境に高音部・低音部に分けるだけで、パートの区別はしません。</li>
-      <li>ドラムは対象外です。音源分離も未搭載です。</li>
+      <li>ピアノ・ギターなどは、C4 を境に高音部・低音部に分けるだけで、パートの区別はしません。</li>
+      <li>ベースは単音のみです。楽譜は実音の1オクターブ上に書きます(ベース譜の慣例)。</li>
+      <li>ドラムはキック・スネア・ハイハットの3種だけです。タム・シンバルは未対応です。</li>
+      <li>音源分離は未搭載です。バンド全体の音源では精度が下がります。</li>
     </ul>
   </section>
 </div>
@@ -344,15 +350,161 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
     return { step: nm[0], alter: nm.length > 1 ? (nm[1] === '#' ? 1 : -1) : 0, octave: Math.floor(midi / 12) - 1 };
   }
 
-  /* opts: {bpm, t0, beatsPerBar, fifths, split} */
+  /* Kaiser-windowed sinc resampler: same result in every browser, no aliasing of >11 kHz content (hi-hats) into low bands */
+  function bessel0(x) { var s = 1, t = 1, k; for (k = 1; k < 30; k++) { t *= (x / (2 * k)) * (x / (2 * k)); s += t; if (t < 1e-12 * s) break; } return s; }
+  function resample(x, rateIn, rateOut) {
+    if (rateIn === rateOut) return Float32Array.from(x);
+    var ratio = rateIn / rateOut, fc = Math.min(0.5, 0.5 * rateOut / rateIn * 0.94), ZC = 14, W = ZC / (2 * fc), STEP = 128, beta = 8.0;
+    var nt = Math.ceil(2 * W * STEP) + 1, table = new Float32Array(nt + 1), i, b0 = bessel0(beta);
+    for (i = 0; i <= nt; i++) {
+      var u = (i / STEP) - W, w = 1 - (u / W) * (u / W);
+      var sinc = Math.abs(u) < 1e-9 ? 1 : Math.sin(2 * Math.PI * fc * u) / (2 * Math.PI * fc * u);
+      table[i] = w > 0 ? 2 * fc * sinc * bessel0(beta * Math.sqrt(w)) / b0 : 0;
+    }
+    var nOut = Math.floor(x.length / ratio), out = new Float32Array(nOut), n, k;
+    for (n = 0; n < nOut; n++) {
+      var c = n * ratio, lo = Math.max(0, Math.ceil(c - W)), hi = Math.min(x.length - 1, Math.floor(c + W)), acc = 0;
+      for (k = lo; k <= hi; k++) {
+        var p = (k - c + W) * STEP, pi = p | 0, fr = p - pi;
+        acc += x[k] * (table[pi] + (table[pi + 1] - table[pi]) * fr);
+      }
+      out[n] = acc;
+    }
+    return out;
+  }
+
+  /* ---------- helpers for bass / drums ---------- */
+  function lowpass(x, rate, fc, passes) {
+    var a = Math.exp(-2 * Math.PI * fc / rate), buf = Float32Array.from(x), p, i, s;
+    for (p = 0; p < passes; p++) { s = 0; for (i = 0; i < buf.length; i++) { s = (1 - a) * buf[i] + a * s; buf[i] = s; } }
+    return buf;
+  }
+  /* bass is a single line: when notes overlap keep the newer one, drop weak ghosts that start inside a sounding note */
+  function monophonic(notes) {
+    var s = notes.slice().sort(function (p, q) { return p.t - q.t || q.a - p.a; }), out = [], prev = null;
+    s.forEach(function (o) {
+      var n = { t: o.t, d: o.d, p: o.p, a: o.a };
+      if (prev && n.t < prev.t + prev.d - 0.02) {
+        if (n.a < prev.a * 0.6 && n.t - prev.t < 0.25) return;
+        prev.d = Math.max(0.04, n.t - prev.t);
+      }
+      out.push(n); prev = n;
+    });
+    return out;
+  }
+
+  function makeFFT(n) {
+    var levels = Math.round(Math.log(n) / Math.LN2), cosT = new Float64Array(n / 2), sinT = new Float64Array(n / 2), rev = new Uint32Array(n), i, j;
+    for (i = 0; i < n / 2; i++) { cosT[i] = Math.cos(2 * Math.PI * i / n); sinT[i] = Math.sin(2 * Math.PI * i / n); }
+    for (i = 0; i < n; i++) { var r = 0; for (j = 0; j < levels; j++) r |= ((i >>> j) & 1) << (levels - 1 - j); rev[i] = r; }
+    return function (re, im) {
+      var k, size, half, step, a, b, tr, ti, c, s, i1, i2, r2;
+      for (k = 0; k < n; k++) { r2 = rev[k]; if (r2 > k) { tr = re[k]; re[k] = re[r2]; re[r2] = tr; ti = im[k]; im[k] = im[r2]; im[r2] = ti; } }
+      for (size = 2; size <= n; size *= 2) {
+        half = size / 2; step = n / size;
+        for (a = 0; a < n; a += size) for (b = 0; b < half; b++) {
+          c = cosT[b * step]; s = -sinT[b * step]; i1 = a + b; i2 = i1 + half;
+          tr = re[i2] * c - im[i2] * s; ti = re[i2] * s + im[i2] * c;
+          re[i2] = re[i1] - tr; im[i2] = im[i1] - ti; re[i1] += tr; im[i1] += ti;
+        }
+      }
+    };
+  }
+
+  /* Drum hits from a 22.05 kHz mono signal: kick = low band, snare = mid band, hi-hat = high band (spectral flux).
+   * returns {notes:[{t,d,p(GM 36/38/42),a}], env, count:{36,38,42}} */
+  var RATIO_KICK = 1.9, RATIO_BOTH = 4.5;
+  var DRUM_BANDS = { L: [[2, 6]], S: [[7, 14]], M: [[15, 60], [93, 186]], H: [[279, 480]] };
+  function detectDrums(x, sens) {
+    sens = sens || 1;
+    var N = 1024, H = 256, RATE = 22050, nf = Math.max(0, Math.floor((x.length - N) / H) + 1), fft = makeFFT(N), half = N / 2;
+    var win = new Float64Array(N), re = new Float64Array(N), im = new Float64Array(N), i, f, k, bi, r;
+    for (i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N);
+    var prev = new Float32Array(half), cur = new Float32Array(half), tmp, names = ['L', 'S', 'M', 'H'];
+    var flux = { L: new Float32Array(nf), S: new Float32Array(nf), M: new Float32Array(nf), H: new Float32Array(nf) }, lf = new Float32Array(nf), sb = new Float32Array(nf);
+    for (f = 0; f < nf; f++) {
+      var o = f * H;
+      for (i = 0; i < N; i++) { re[i] = x[o + i] * win[i]; im[i] = 0; }
+      fft(re, im);
+      for (k = 0; k < half; k++) cur[k] = Math.log(1 + 30 * Math.sqrt(re[k] * re[k] + im[k] * im[k]) / (N / 4));
+      for (k = 2; k <= 6; k++) lf[f] += Math.sqrt(re[k] * re[k] + im[k] * im[k]) / (N / 4);   // 43-129 Hz: kick fundamental
+      for (k = 7; k <= 14; k++) sb[f] += Math.sqrt(re[k] * re[k] + im[k] * im[k]) / (N / 4);  // 150-300 Hz: snare body
+      if (f > 0) {
+        for (bi = 0; bi < 4; bi++) {
+          var rs = DRUM_BANDS[names[bi]], sum = 0;
+          for (r = 0; r < rs.length; r++) for (k = rs[r][0]; k <= rs[r][1]; k++) { var d = cur[k] - prev[k]; if (d > 0) sum += d; }
+          flux[names[bi]][f] = sum;
+        }
+      }
+      tmp = prev; prev = cur; cur = tmp;
+    }
+    // per-band scale = 95th percentile, floored so that an absent instrument isn't amplified
+    var scale = {}, big = 0;
+    names.forEach(function (nm) { var c = Float32Array.from(flux[nm]).sort(); scale[nm] = c[Math.floor(0.95 * (nf - 1))] || 0; if (scale[nm] > big) big = scale[nm]; });
+    names.forEach(function (nm) { var sc = Math.max(scale[nm], 0.15 * big, 1e-6); for (f = 0; f < nf; f++) flux[nm][f] /= sc; });
+    // peak picking per band
+    var peaks = [];
+    names.forEach(function (nm) {
+      var v = flux[nm], pre = new Float64Array(nf + 1), W = 43;
+      for (f = 0; f < nf; f++) pre[f + 1] = pre[f] + v[f];
+      for (f = 3; f < nf - 3; f++) {
+        var m = true;
+        for (var j = -3; j <= 3; j++) if (v[f + j] > v[f]) { m = false; break; }
+        if (!m) continue;
+        var lo = Math.max(0, f - W), hi = Math.min(nf, f + W + 1), lm = (pre[hi] - pre[lo]) / (hi - lo);
+        if (v[f] > (1.4 * lm + 0.15) / sens) peaks.push(f);
+      }
+    });
+    peaks.sort(function (a, b) { return a - b; });
+    // cluster peaks that are within 3 frames
+    var clusters = [], c0 = null;
+    peaks.forEach(function (pf) {
+      if (c0 && pf - c0.last <= 3) { c0.last = pf; c0.fs.push(pf); } else { c0 = { last: pf, fs: [pf] }; clusters.push(c0); }
+    });
+    var notes = [], count = { 36: 0, 38: 0, 42: 0 }, lastT = { 36: -1, 38: -1, 42: -1 };
+    function bandMax(nm, a, b) { var m = 0; for (var q = Math.max(0, a); q <= Math.min(nf - 1, b); q++) if (flux[nm][q] > m) m = flux[nm][q]; return m; }
+    // pass 1: features of every candidate hit
+    var hits = clusters.map(function (cl) {
+      var bf = cl.fs[0], bv = -1;
+      cl.fs.forEach(function (pf) { var t = flux.L[pf] + flux.S[pf] + flux.M[pf] + flux.H[pf]; if (t > bv) { bv = t; bf = pf; } });
+      var L = bandMax('L', bf - 2, bf + 2), Sv = bandMax('S', bf - 2, bf + 2), Hv = bandMax('H', bf - 2, bf + 2);
+      // kick vs snare: a kick keeps low-frequency energy (40-130 Hz) after the hit, a snare rings at 150-300 Hz
+      var ml = 0, ms = 0, q;
+      for (q = bf + 2; q <= bf + 8 && q < nf; q++) { ml += lf[q]; ms += sb[q]; }
+      var ratio = ml / (ms + 1e-6);
+      // ratio = low-frequency energy / snare-body energy after the hit: kick alone is high, snare alone is low, both together sit in between
+      var kick = L >= 0.5 && ratio >= RATIO_KICK;
+      var snare = Sv >= 0.5 && (!kick || ratio < RATIO_BOTH);   // a hat has no energy at 150-300 Hz, a snare does
+      var hatOnly = !kick && !snare && Hv >= 0.45;
+      if (typeof DEBUG_DRUMS !== 'undefined') DEBUG_DRUMS.push([+((bf * H + N / 2) / RATE).toFixed(3), +L.toFixed(2), +Sv.toFixed(2), +Hv.toFixed(2), +ratio.toFixed(2)]);
+      return { t: (bf * H + N / 2) / RATE, L: L, S: Sv, H: Hv, kick: kick, snare: snare, hatOnly: hatOnly };
+    });
+    // a hi-hat usually keeps playing under kick and snare: if clear hat-only hits exist, use their level as a reference
+    var hs = hits.filter(function (h) { return h.hatOnly; }).map(function (h) { return h.H; }).sort(function (p, q) { return p - q; });
+    var hatRef = hs.length >= 3 ? hs[Math.floor(hs.length / 2)] : 0;
+    function add(t, p, a) { if (t - lastT[p] < 0.04) return; lastT[p] = t; count[p]++; notes.push({ t: t, d: 0.05, p: p, a: Math.max(0.25, Math.min(1, a)) }); }
+    hits.forEach(function (h) {
+      if (h.kick) add(h.t, 36, h.L);
+      if (h.snare) add(h.t, 38, Math.min(1, h.S));
+      if (h.hatOnly || ((h.kick || h.snare) && hatRef && h.H >= 0.8 * hatRef)) add(h.t, 42, Math.min(1, h.H / 1.5));
+    });
+    notes.sort(function (p, q) { return p.t - q.t || p.p - q.p; });
+    var env = new Float32Array(nf + 2);
+    for (f = 0; f < nf; f++) env[f + 2] = flux.L[f] + flux.S[f] + flux.M[f] + flux.H[f];
+    return { notes: notes, env: env, count: count };
+  }
+
+  /* opts: {bpm, t0, beatsPerBar, fifths, split, layout: 'grand' | 'bass' | 'drums'} */
+  var DRUM_MAP = { 36: { step: 'F', oct: 4, head: null, name: 'Bass Drum' }, 38: { step: 'C', oct: 5, head: null, name: 'Snare' }, 42: { step: 'G', oct: 5, head: 'x', name: 'Hi-Hat' } };
   function buildScore(notes, opts) {
+    var layout = opts.layout || 'grand', drums = layout === 'drums', ns = layout === 'grand' ? 2 : 1;
     var bpb = opts.beatsPerBar || 4, M = bpb * 4, slotSec = 15 / opts.bpm, split = opts.split || 60;
-    var staves = [new Map(), new Map()], placed = 0, dropped = 0, maxEnd = 0;
+    var staves = ns === 2 ? [new Map(), new Map()] : [new Map()], placed = 0, dropped = 0, maxEnd = 0;
     notes.forEach(function (n) {
       var s = Math.round((n.t - opts.t0) / slotSec);
       if (s < 0) { if (s >= -1) s = 0; else { dropped++; return; } }
-      var e = Math.max(s + 1, Math.round((n.t + n.d - opts.t0) / slotSec));
-      var si = n.p >= split ? 0 : 1, m = staves[si], ev = m.get(s);
+      var e = drums ? s + 2 : Math.max(s + 1, Math.round((n.t + n.d - opts.t0) / slotSec));
+      var si = ns === 1 ? 0 : (n.p >= split ? 0 : 1), m = staves[si], ev = m.get(s);
       if (!ev) { ev = new Map(); m.set(s, ev); }
       ev.set(n.p, Math.max(ev.get(n.p) || 0, e));
       placed++; if (e > maxEnd) maxEnd = e;
@@ -365,6 +517,7 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
         var ev = m.get(s), nxt = i + 1 < slots.length ? slots[i + 1] : total, end = 0;
         ev.forEach(function (e) { if (e > end) end = e; });
         end = Math.min(end, nxt, total);
+        if (drums) end = Math.min(end, (Math.floor(s / M) + 1) * M);
         if (nxt - end > 0 && nxt - end <= FILL) end = nxt; // absorb tiny gaps (decayed notes) so the page isn't full of rests
         if (s > pos) items.push({ start: pos, len: s - pos, pitches: null });
         items.push({ start: s, len: end - s, pitches: Array.from(ev.keys()).sort(function (a, b) { return a - b; }) });
@@ -392,45 +545,57 @@ ul.lim { margin: 0; padding-left: 1.2em; font-size: 13px; color: var(--muted); d
       });
       return perMeasure;
     }
-    var fifths = opts.fifths || 0;
+    var fifths = drums ? 0 : (opts.fifths || 0), shift = 0, stf = function (n) { return ns === 2 ? '<staff>' + n + '</staff>' : ''; };
     function noteXml(pc, staff) {
       var t = TYPES[pc.d], x = '';
       if (!pc.pitches) {
         x += '<note><rest' + (pc.whole ? ' measure="yes"' : '') + '/><duration>' + pc.d + '</duration><voice>' + staff + '</voice>' +
-          (pc.whole ? '' : '<type>' + t[0] + '</type>' + (t[1] ? '<dot/>' : '')) + '<staff>' + staff + '</staff></note>';
+          (pc.whole ? '' : '<type>' + t[0] + '</type>' + (t[1] ? '<dot/>' : '')) + stf(staff) + '</note>';
         return x;
       }
       pc.pitches.forEach(function (p, i) {
-        var sp = spell(p, fifths);
+        var tail = '<voice>' + staff + '</voice><type>' + t[0] + '</type>' + (t[1] ? '<dot/>' : '');
+        if (drums) {
+          var dm = DRUM_MAP[p] || DRUM_MAP[38];
+          x += '<note>' + (i ? '<chord/>' : '') + '<unpitched><display-step>' + dm.step + '</display-step><display-octave>' + dm.oct + '</display-octave></unpitched><duration>' + pc.d + '</duration>' +
+            '<instrument id="P1-I' + p + '"/>' + tail + (dm.head ? '<notehead>' + dm.head + '</notehead>' : '') + '</note>';
+          return;
+        }
+        var sp = spell(p + shift, fifths);
         x += '<note>' + (i ? '<chord/>' : '') + '<pitch><step>' + sp.step + '</step>' + (sp.alter ? '<alter>' + sp.alter + '</alter>' : '') +
           '<octave>' + sp.octave + '</octave></pitch><duration>' + pc.d + '</duration>' +
-          (pc.tieStop ? '<tie type="stop"/>' : '') + (pc.tieStart ? '<tie type="start"/>' : '') +
-          '<voice>' + staff + '</voice><type>' + t[0] + '</type>' + (t[1] ? '<dot/>' : '') + '<staff>' + staff + '</staff>' +
+          (pc.tieStop ? '<tie type="stop"/>' : '') + (pc.tieStart ? '<tie type="start"/>' : '') + tail + stf(staff) +
           ((pc.tieStop || pc.tieStart) ? '<notations>' + (pc.tieStop ? '<tied type="stop"/>' : '') + (pc.tieStart ? '<tied type="start"/>' : '') + '</notations>' : '') +
           '</note>';
       });
       return x;
     }
-    var pm = [piecesFor(itemsFor(staves[0])), piecesFor(itemsFor(staves[1]))], xml = '';
-    xml += '<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="3.1"><work><work-title>' + esc(opts.title || 'Band Transcriber 試作') + '</work-title></work>' +
-      '<part-list><score-part id="P1"><part-name>Score</part-name></score-part></part-list><part id="P1">';
+    var pm = staves.map(function (m) { return piecesFor(itemsFor(m)); }), xml = '';
+    var partList = drums
+      ? '<part-list><score-part id="P1"><part-name>Drums</part-name>' +
+        [36, 38, 42].map(function (p) { return '<score-instrument id="P1-I' + p + '"><instrument-name>' + DRUM_MAP[p].name + '</instrument-name></score-instrument>'; }).join('') +
+        [36, 38, 42].map(function (p) { return '<midi-instrument id="P1-I' + p + '"><midi-channel>10</midi-channel><midi-unpitched>' + (p + 1) + '</midi-unpitched></midi-instrument>'; }).join('') +
+        '</score-part></part-list>'
+      : '<part-list><score-part id="P1"><part-name>' + (layout === 'bass' ? 'Bass' : 'Score') + '</part-name></score-part></part-list>';
+    var clefs = layout === 'grand' ? '<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef>'
+      : layout === 'bass' ? '<clef><sign>F</sign><line>4</line><clef-octave-change>-1</clef-octave-change></clef>'
+      : '<clef><sign>percussion</sign></clef>';
+    xml += '<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="3.1"><work><work-title>' + esc(opts.title || 'Band Transcriber 試作') + '</work-title></work>' + partList + '<part id="P1">';
     for (var m = 0; m < nMeasures; m++) {
       xml += '<measure number="' + (m + 1) + '">';
       if (m === 0) {
-        xml += '<attributes><divisions>4</divisions><key><fifths>' + fifths + '</fifths></key><time><beats>' + bpb + '</beats><beat-type>4</beat-type></time>' +
-          '<staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>' +
+        xml += '<attributes><divisions>4</divisions>' + (drums ? '' : '<key><fifths>' + fifths + '</fifths></key>') + '<time><beats>' + bpb + '</beats><beat-type>4</beat-type></time>' + clefs + '</attributes>' +
           '<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>' + Math.round(opts.bpm) + '</per-minute></metronome></direction-type><sound tempo="' + Math.round(opts.bpm) + '"/></direction>';
       }
       pm[0][m].forEach(function (pc) { xml += noteXml(pc, 1); });
-      xml += '<backup><duration>' + M + '</duration></backup>';
-      pm[1][m].forEach(function (pc) { xml += noteXml(pc, 2); });
+      if (ns === 2) { xml += '<backup><duration>' + M + '</duration></backup>'; pm[1][m].forEach(function (pc) { xml += noteXml(pc, 2); }); }
       xml += '</measure>';
     }
     xml += '</part></score-partwise>';
     return { xml: xml, measures: nMeasures, placed: placed, dropped: dropped };
   }
 
-  var Engine = { FPS: FPS, cleanNotes: cleanNotes, estimateGrid: estimateGrid, barOrigin: barOrigin, estimateKey: estimateKey, buildScore: buildScore, decompose: decompose };
+  var Engine = { resample: resample, FPS: FPS, cleanNotes: cleanNotes, monophonic: monophonic, lowpass: lowpass, detectDrums: detectDrums, estimateGrid: estimateGrid, barOrigin: barOrigin, estimateKey: estimateKey, buildScore: buildScore, decompose: decompose };
   if (typeof module !== 'undefined' && module.exports) module.exports = Engine; else root.Engine = Engine;
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
@@ -463,17 +628,7 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
     for (var c = 0; c < ch; c++) { var d = buf.getChannelData(c); for (var i = 0; i < n; i++) out[i] += d[i] / ch; }
     return { data: out, rate: buf.sampleRate };
   }
-  function resample22k(mono) {
-    var Off = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    var outLen = Math.max(1, Math.round(mono.data.length * 22050 / mono.rate));
-    var off = new Off(1, outLen, 22050), b = off.createBuffer(1, mono.data.length, mono.rate);
-    b.getChannelData(0).set(mono.data);
-    var src = off.createBufferSource(); src.buffer = b; src.connect(off.destination); src.start();
-    return new Promise(function (res, rej) {
-      var p = off.startRendering(); off.oncomplete = function (e) { res(e.renderedBuffer.getChannelData(0)); };
-      if (p && p.then) p.then(function (r) { res(r.getChannelData(0)); }, rej);
-    });
-  }
+  function resample22k(mono) { return Promise.resolve(Engine.resample(mono.data, mono.rate, 22050)); }
 
   /* synthetic test song: 4 bars, 100 BPM, C major, right hand + left hand */
   var SYN = [[72,0,1],[74,1,1],[76,2,.5],[77,2.5,.5],[79,3,1],[76,4,2],[72,6,1],[67,7,1],[69,8,1],[71,9,1],[72,10,.5],[74,10.5,.5],[76,11,1],[72,12,4],[64,12,4],[67,12,4],
@@ -525,21 +680,35 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
       var g = 0.95 / peak, y = new Float32Array(x.length);
       for (i = 0; i < x.length; i++) y[i] = x[i] * g;
 
-      status('AIモデルを準備中…'); await tick();
-      var model = await getModel();
-      var bp = new BP.BasicPitch(model), frames = [], onsets = [], t1 = performance.now();
-      status('採譜中…');
-      await bp.evaluateModel(y, function (f, o) { for (var k = 0; k < f.length; k++) { frames.push(f[k]); onsets.push(o[k]); } },
-        function (p) { $('prog').value = p; });
-      log('推論 ' + ((performance.now() - t1) / 1000).toFixed(1) + '秒 / フレーム ' + frames.length);
-      var s = SENS[$('sens').value] || SENS.mid;
-      var raw = BP.noteFramesToTime(BP.outputToNotesPoly(frames, onsets, s[0], s[1], s[2], true, null, null, true, 11));
-      S.notes = Engine.cleanNotes(raw.map(function (n) { return { t: n.startTimeSeconds, d: n.durationSeconds, p: n.pitchMidi, a: n.amplitude }; }))
-        .sort(function (p, q) { return p.t - q.t || p.p - q.p; });
-      S.env = new Float32Array(onsets.length);
-      for (i = 0; i < onsets.length; i++) { var r = onsets[i], sum = 0; for (var k2 = 0; k2 < r.length; k2++) sum += r[k2]; S.env[i] = sum; }
-      log('検出した音符: ' + raw.length + '(倍音と判断して除外: ' + (raw.length - S.notes.length) + ')');
-      if (!S.notes.length) throw new Error('音符を検出できませんでした。「細かく拾う」にするか、別の区間を試してください。');
+      var mode = $('inst').value, sf = $('sens').value, s = SENS[sf] || SENS.mid;
+      S.mode = mode;
+      if (mode === 'drums') {
+        status('打楽器を解析中…'); await tick();
+        var dr = Engine.detectDrums(y, { low: 0.75, mid: 1, high: 1.4 }[sf] || 1);
+        S.notes = dr.notes; S.env = dr.env;
+        log('キック ' + dr.count[36] + ' / スネア ' + dr.count[38] + ' / ハイハット ' + dr.count[42]);
+        if (!S.notes.length) throw new Error('打音を検出できませんでした。「細かく拾う」にするか、別の区間を試してください。');
+      } else {
+        var isBass = mode === 'bass', inp = isBass ? Engine.lowpass(y, 22050, 700, 4) : y;
+        status('AIモデルを準備中…'); await tick();
+        var model = await getModel();
+        var bp = new BP.BasicPitch(model), frames = [], onsets = [], t1 = performance.now();
+        status('採譜中…');
+        await bp.evaluateModel(inp, function (f, o) { for (var k = 0; k < f.length; k++) { frames.push(f[k]); onsets.push(o[k]); } },
+          function (p) { $('prog').value = p; });
+        log('推論 ' + ((performance.now() - t1) / 1000).toFixed(1) + '秒 / フレーム ' + frames.length);
+        var raw = BP.noteFramesToTime(BP.outputToNotesPoly(frames, onsets, s[0], s[1], s[2], true, isBass ? 450 : null, isBass ? 30 : null, true, 11));
+        var list = raw.map(function (n) { return { t: n.startTimeSeconds, d: n.durationSeconds, p: n.pitchMidi, a: n.amplitude }; });
+        if (isBass) list = list.filter(function (n) { return n.p >= 28 && n.p <= 69; });
+        var cleaned = Engine.cleanNotes(list);
+        if (isBass) cleaned = Engine.monophonic(cleaned);
+        S.notes = cleaned.sort(function (p, q) { return p.t - q.t || p.p - q.p; });
+        var lo = isBass ? 7 : 0, hi = isBass ? 48 : 87;   // pitch bins: bin 0 = MIDI 21
+        S.env = new Float32Array(onsets.length);
+        for (i = 0; i < onsets.length; i++) { var r = onsets[i], sum = 0; for (var k2 = lo; k2 <= hi && k2 < r.length; k2++) sum += r[k2]; S.env[i] = sum; }
+        log('検出した音符: ' + raw.length + ' → 採用 ' + S.notes.length);
+        if (!S.notes.length) throw new Error('音符を検出できませんでした。「細かく拾う」にするか、別の区間を試してください。');
+      }
       S.shift = 0; $('bpm').value = '';
       await render();
       status('完了しました。');
@@ -554,8 +723,9 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
     var seq = ++S.renderSeq, bpb = parseInt($('ts').value, 10) || 4, manual = parseFloat($('bpm').value) || 0;
     var grid = Engine.estimateGrid(S.notes, S.env, manual);
     var sh = ((S.shift % bpb) + bpb) % bpb, t0 = Engine.barOrigin(grid, S.notes, bpb, sh);
-    var key = Engine.estimateKey(S.notes);
-    var r = Engine.buildScore(S.notes, { bpm: grid.bpm, t0: t0, beatsPerBar: bpb, fifths: key.fifths });
+    var layout = S.mode === 'drums' ? 'drums' : S.mode === 'bass' ? 'bass' : 'grand';
+    var key = layout === 'drums' ? { fifths: 0, name: '—' } : Engine.estimateKey(S.notes);
+    var r = Engine.buildScore(S.notes, { bpm: grid.bpm, t0: t0, beatsPerBar: bpb, fifths: key.fifths, layout: layout });
     $('bpm').placeholder = '自動 ' + grid.bpm; S.lastBpm = grid.bpm;
     $('s-bpm').textContent = grid.bpm.toFixed(1);
     $('s-conf').textContent = Math.round(grid.conf * 100) + '%';
@@ -597,6 +767,13 @@ var MODEL_JSON={"format":"graph-model","generatedBy":"2.4.1","convertedBy":"Tens
     S.source = function () { return Promise.resolve(synthSong()); };
     status('テスト音源(100 BPM・4小節・ハ長調)を使います。'); analyze();
   });
+  var HINTS = {
+    keys: '和音も拾います。高音部と低音部の2段で書きます。',
+    bass: '低い音だけを、1音ずつの旋律として拾います。楽譜は実音の1オクターブ上に書きます。',
+    drums: 'キック・スネア・ハイハットだけを、音の出るタイミングから判定します。AIモデルは使わないので速く終わります。'
+  };
+  function hint() { $('inst-hint').textContent = HINTS[$('inst').value] || ''; }
+  $('inst').addEventListener('change', hint); hint();
   $('go').addEventListener('click', analyze);
   $('bpm').addEventListener('change', render);
   $('ts').addEventListener('change', render);
